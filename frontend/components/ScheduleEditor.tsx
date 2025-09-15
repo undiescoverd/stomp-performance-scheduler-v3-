@@ -498,6 +498,7 @@ export default function ScheduleEditor() {
         castMembers={castData?.castMembers || []}
         roles={castData?.roles || []}
         location={location}
+        week={week}
         scheduleId={id}
         onAssignmentChange={handleAssignmentChange}
         onShowStatusChange={handleShowStatusChange}
