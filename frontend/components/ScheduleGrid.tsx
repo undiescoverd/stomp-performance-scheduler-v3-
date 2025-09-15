@@ -53,7 +53,7 @@ export function ScheduleGrid({
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const visibleShows = shows.filter(show => show.status !== 'removed');
+  const visibleShows = shows.filter(show => show.status === 'show' || show.status === 'travel' || show.status === 'dayoff');
 
   const { assignmentMap, performerRedDays } = useMemo(() => {
     const assignmentMap = new Map<string, string>();
@@ -212,6 +212,31 @@ export function ScheduleGrid({
       });
     }
   };
+  const handleBulkDateUpdate = (newStartDate: string) => {
+    if (!newStartDate || visibleShows.length === 0) return;
+    
+    try {
+      const startDate = new Date(newStartDate);
+      visibleShows.forEach((show, index) => {
+        const newDate = new Date(startDate);
+        newDate.setDate(startDate.getDate() + index);
+        
+        const formattedDate = newDate.toISOString().split('T')[0];
+        onShowChange(show.id, 'date', formattedDate);
+      });
+      
+      toast({
+        title: "Success",
+        description: `Updated ${visibleShows.length} show dates starting from ${formatDate(newStartDate)}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update show dates",
+        variant: "destructive"
+      });
+    }
+  };
 
   const handleHardReset = () => {
     if (confirm('This will completely clear all assignments and generate a fresh schedule. This action cannot be undone. Continue?')) {
@@ -306,6 +331,18 @@ export function ScheduleGrid({
         <div className="flex items-center justify-between">
           <CardTitle>Cast Schedule</CardTitle>
           <div className="flex items-center space-x-2">
+            {visibleShows.length > 0 && (
+              <div className="flex items-center space-x-2 mr-4 px-3 py-1 bg-blue-50 rounded-lg border border-blue-200">
+                <Calendar className="h-4 w-4 text-blue-600" />
+                <span className="text-sm text-blue-700 font-medium">Start Date:</span>
+                <Input
+                  type="date"
+                  value={visibleShows[0]?.date || ''}
+                  onChange={(e) => handleBulkDateUpdate(e.target.value)}
+                  className="text-xs h-7 w-36 border-blue-300 focus:border-blue-500 bg-white"
+                />
+              </div>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -415,13 +452,34 @@ export function ScheduleGrid({
                       return (
                         <td key={`${role}-${show.id}`} className="border border-gray-300 p-1">
                           <Select value={currentAssignment || "none"} onValueChange={(value) => onAssignmentChange(show.id, role, value === "none" ? "" : value)}>
-                            <SelectTrigger className={`text-xs h-8 w-full ${hasError ? 'border-red-500 bg-red-50' : ''}`}>
-                              <SelectValue placeholder="Select..." />
+                            <SelectTrigger className={`text-xs h-8 w-full transition-all duration-200 ${
+                              hasError 
+                                ? 'border-red-500 bg-red-50 hover:border-red-600 shadow-sm' 
+                                : currentAssignment && currentAssignment !== "none"
+                                  ? 'border-blue-400 bg-blue-50 hover:border-blue-500 shadow-sm'
+                                  : 'border-gray-300 bg-white hover:border-gray-400 hover:bg-gray-50'
+                            }`}>
+                              <SelectValue 
+                                placeholder="Select..." 
+                                className={currentAssignment && currentAssignment !== "none" ? 'font-medium text-blue-900' : 'text-gray-500'}
+                              />
                               {hasError && <AlertTriangle className="h-3 w-3 text-red-500 ml-1 flex-shrink-0" />}
                             </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              {eligibleCast.map((member) => (<SelectItem key={member.name} value={member.name}>{member.name}</SelectItem>))}
+                            <SelectContent className="z-50 max-h-40 overflow-y-auto">
+                              <SelectItem value="none" className="text-gray-500 italic font-normal">
+                                <span className="flex items-center space-x-2">
+                                  <span className="w-2 h-2 bg-gray-300 rounded-full"></span>
+                                  <span>None</span>
+                                </span>
+                              </SelectItem>
+                              {eligibleCast.map((member) => (
+                                <SelectItem key={member.name} value={member.name} className="font-medium hover:bg-blue-50">
+                                  <span className="flex items-center space-x-2">
+                                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                                    <span>{member.name}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </td>

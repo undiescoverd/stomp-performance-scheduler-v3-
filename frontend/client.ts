@@ -970,4 +970,4 @@ export enum ErrCode {
     Unauthenticated = "unauthenticated",
 }
 
-export default new Client(import.meta.env.VITE_CLIENT_TARGET, { requestInit: { credentials: "include" } });
+export default new Client((import.meta as any).env?.VITE_CLIENT_TARGET || 'http://localhost:4000', { requestInit: { credentials: "include" } });

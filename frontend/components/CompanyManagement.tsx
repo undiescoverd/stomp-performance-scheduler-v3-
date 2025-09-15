@@ -9,7 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { Users, Archive, Edit3, ArrowUp, Search, UserPlus, GripVertical, Trash2, Filter } from 'lucide-react';
 import backend from '~backend/client';
-import type { CompanyMember, Role } from '~backend/scheduler/company';
+import type { CompanyMember } from '~backend/scheduler/company';
+import type { Role } from '~backend/scheduler/types';
 import { RoleSelector } from './RoleSelector';
 
 export default function CompanyManagement() {
@@ -291,7 +292,7 @@ export default function CompanyManagement() {
           <div className="space-y-6">
             {showAddCurrentForm ? renderAddMemberForm('active') : (
               <Button
-                variant="dashed"
+                variant="outline"
                 className="w-full border-dashed border-2 h-16 text-gray-600 hover:text-gray-900 hover:border-gray-400"
                 onClick={() => setShowAddCurrentForm(true)}
               >
@@ -300,44 +301,56 @@ export default function CompanyManagement() {
               </Button>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filteredCurrentCompany.length === 0 ? (
                 <div className="col-span-full text-center py-8 text-gray-500">
                   {searchTerm || roleFilter !== 'all' ? 'No cast members match your search' : 'No current company members'}
                 </div>
               ) : (
                 filteredCurrentCompany.map((member) => (
-                  <Card key={member.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex flex-col h-full">
-                        <div className="flex items-start space-x-3 flex-1">
-                          <GripVertical className="h-4 w-4 text-gray-400 cursor-move mt-1" />
-                          <div className="flex-1 space-y-3">
-                            {editingMember === member.id ? (
-                              <Input
-                                defaultValue={member.name}
-                                className="font-medium"
-                                autoFocus
-                                onBlur={(e) => handleUpdateName(member, e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleUpdateName(member, e.currentTarget.value);
-                                  else if (e.key === 'Escape') setEditingMember(null);
-                                }}
-                              />
-                            ) : (
-                              <div className="font-medium cursor-pointer hover:text-blue-600 flex items-center space-x-2" onClick={() => setEditingMember(member.id)}>
-                                <span>{member.name}</span>
-                                <Edit3 className="h-3 w-3 opacity-50" />
-                              </div>
-                            )}
-                            <div>
-                              <RoleSelector selectedRoles={member.eligibleRoles} availableRoles={roles} onChange={(newRoles) => handleUpdateRoles(member, newRoles)} displayMode="badges" />
-                            </div>
+                  <Card key={member.id} className="hover:shadow-md transition-all duration-200 border-l-4 border-l-blue-400">
+                    <CardContent className="p-3">
+                      <div className="flex flex-col h-full min-h-[140px]">
+                        <div className="flex items-center justify-between mb-2">
+                          <GripVertical className="h-4 w-4 text-gray-400 cursor-move" />
+                          <div className="flex items-center space-x-1">
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <span className="text-xs text-green-600 font-medium">Active</span>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-2 mt-4 pt-4 border-t">
-                          <Button variant="outline" size="sm" className="flex-1" onClick={() => handleArchiveMember(member)}>Archive</Button>
-                          <Button variant="destructive" size="icon" onClick={() => handleDeleteMember(member)}><Trash2 className="h-4 w-4" /></Button>
+                        
+                        <div className="flex-1 space-y-2">
+                          {editingMember === member.id ? (
+                            <Input
+                              defaultValue={member.name}
+                              className="font-semibold text-sm h-7"
+                              autoFocus
+                              onBlur={(e) => handleUpdateName(member, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleUpdateName(member, e.currentTarget.value);
+                                else if (e.key === 'Escape') setEditingMember(null);
+                              }}
+                            />
+                          ) : (
+                            <div className="font-semibold text-sm cursor-pointer hover:text-blue-600 flex items-center justify-between group" onClick={() => setEditingMember(member.id)}>
+                              <span className="truncate pr-1">{member.name}</span>
+                              <Edit3 className="h-3 w-3 opacity-0 group-hover:opacity-50 flex-shrink-0" />
+                            </div>
+                          )}
+                          
+                          <div className="min-h-[40px]">
+                            <RoleSelector selectedRoles={member.eligibleRoles} availableRoles={roles} onChange={(newRoles) => handleUpdateRoles(member, newRoles)} displayMode="badges" />
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-1 mt-3 pt-2 border-t border-gray-100">
+                          <Button variant="outline" size="sm" className="flex-1 text-xs h-7 px-2" onClick={() => handleArchiveMember(member)}>
+                            <Archive className="h-3 w-3 mr-1" />
+                            Archive
+                          </Button>
+                          <Button variant="destructive" size="sm" className="h-7 w-7 p-0" onClick={() => handleDeleteMember(member)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
                       </div>
                     </CardContent>
@@ -352,7 +365,7 @@ export default function CompanyManagement() {
           <div className="space-y-6">
             {showAddArchiveForm ? renderAddMemberForm('archived') : (
               <Button
-                variant="dashed"
+                variant="outline"
                 className="w-full border-dashed border-2 h-16 text-gray-600 hover:text-gray-900 hover:border-gray-400"
                 onClick={() => setShowAddArchiveForm(true)}
               >
@@ -360,35 +373,50 @@ export default function CompanyManagement() {
                 Add Cast Member to Archive
               </Button>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {filteredArchive.length === 0 ? (
                 <div className="col-span-full text-center py-8 text-gray-500">
                   {searchTerm || roleFilter !== 'all' ? 'No archived members match your search' : 'No archived members'}
                 </div>
               ) : (
                 filteredArchive.map((member) => (
-                  <Card key={member.id} className="bg-gray-50 hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex flex-col h-full">
-                        <div className="flex-1 space-y-3">
-                          <div className="flex items-center space-x-3">
-                            <span className="font-medium text-gray-700">{member.name}</span>
+                  <Card key={member.id} className="bg-gray-50 hover:shadow-md transition-all duration-200 border-l-4 border-l-gray-400">
+                    <CardContent className="p-3">
+                      <div className="flex flex-col h-full min-h-[140px]">
+                        <div className="flex items-center justify-between mb-2">
+                          <Archive className="h-4 w-4 text-gray-400" />
+                          <div className="flex items-center space-x-1">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                            <span className="text-xs text-gray-500 font-medium">Archived</span>
                           </div>
-                          <div className="flex flex-wrap gap-1">
-                            {member.eligibleRoles.map((role) => (
-                              <Badge key={role} variant="outline" className="text-xs">{role}</Badge>
-                            ))}
+                        </div>
+                        
+                        <div className="flex-1 space-y-2">
+                          <div className="font-semibold text-sm text-gray-700 truncate">
+                            {member.name}
                           </div>
+                          
+                          <div className="min-h-[40px]">
+                            <div className="flex flex-wrap gap-1">
+                              {member.eligibleRoles.map((role) => (
+                                <Badge key={role} variant="outline" className="text-xs bg-white">{role}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                          
                           <p className="text-xs text-gray-400">
                             Archived {member.dateArchived ? new Date(member.dateArchived).toLocaleDateString() : 'N/A'}
                           </p>
                         </div>
-                        <div className="flex items-center space-x-2 mt-4 pt-4 border-t">
-                          <Button variant="outline" size="sm" className="flex-1 text-green-600 hover:text-green-700" onClick={() => handleRestoreMember(member)}>
+                        
+                        <div className="flex items-center space-x-1 mt-3 pt-2 border-t border-gray-200">
+                          <Button variant="outline" size="sm" className="flex-1 text-xs h-7 px-2 text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleRestoreMember(member)}>
                             <ArrowUp className="h-3 w-3 mr-1" />
                             Restore
                           </Button>
-                          <Button variant="destructive" size="icon" onClick={() => handleDeleteMember(member)}><Trash2 className="h-4 w-4" /></Button>
+                          <Button variant="destructive" size="sm" className="h-7 w-7 p-0" onClick={() => handleDeleteMember(member)}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
                       </div>
                     </CardContent>

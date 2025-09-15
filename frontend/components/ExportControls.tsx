@@ -82,7 +82,7 @@ export function ExportControls({
 
       const assignedPerformers = new Set(
         assignments
-          .filter(a => a.showId === showId)
+          .filter(a => a.showId === showId && a.role !== "OFF")
           .map(a => a.performer)
           .filter(Boolean)
       );
@@ -90,6 +90,14 @@ export function ExportControls({
       return castMembers
         .map(member => member.name)
         .filter(name => !assignedPerformers.has(name));
+    };
+
+    const getRedDayIndicator = (showId: string, performer: string): string => {
+      const show = shows.find(s => s.id === showId);
+      const assignment = assignments.find(a => 
+        a.showId === showId && a.performer === performer && a.isRedDay
+      );
+      return assignment?.isRedDay ? ' (R)' : '';
     };
 
     // Generate table rows for roles
@@ -120,7 +128,9 @@ export function ExportControls({
         
         const offPerformers = getOffPerformers(show.id);
         const performer = offPerformers[index] || '';
-        return `<td class="off-cell">${performer}</td>`;
+        const redIndicator = performer ? getRedDayIndicator(show.id, performer) : '';
+        const cellClass = redIndicator ? 'off-cell red-day' : 'off-cell';
+        return `<td class="${cellClass}">${performer}${redIndicator}</td>`;
       }).join('');
       
       return `<tr><td class="off-label-cell">${index === 0 ? 'OFF' : ''}</td>${cells}</tr>`;
@@ -265,6 +275,12 @@ export function ExportControls({
             font-style: italic;
         }
         
+        .off-cell.red-day {
+            background-color: #ffebee;
+            color: #c62828;
+            font-weight: bold;
+        }
+        
         @media print {
             body { 
                 -webkit-print-color-adjust: exact;
@@ -294,6 +310,12 @@ export function ExportControls({
                 ${offRows}
             </tbody>
         </table>
+        
+        <div style="margin-top: 15px; font-size: 10px; color: #666;">
+            <div style="margin-bottom: 5px;"><strong>Legend:</strong></div>
+            <div style="margin-bottom: 3px;">• (R) = RED Day - Performer is not on call and cannot be called in for emergency cover unless compensated</div>
+            <div>• TRAVEL/DAY OFF days show special status instead of individual assignments</div>
+        </div>
     </div>
 </body>
 </html>`;

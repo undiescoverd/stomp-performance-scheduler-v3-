@@ -340,7 +340,7 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
       showIds: string[];
     }> = [];
     
-    let currentSequence: { startDate: string; endDate: string; count: number; showIds: string[] } | null = null;
+    let currentSequence: { startDate: string; endDate: string; count: number; showIds: string[]; severity?: "ok" | "warning" | "critical" } | null = null;
     let maxConsecutive = 0;
     let lastShowDate: Date | null = null;
     
@@ -368,10 +368,17 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
         } else {
           // End current sequence
           if (currentSequence && currentSequence.count >= 3) {
-            const severity = currentSequence.count >= 6 ? "critical" : 
-                           currentSequence.count >= 4 ? "warning" : "ok";
-            sequences.push({ ...currentSequence, severity });
-            maxConsecutive = Math.max(maxConsecutive, currentSequence.count);
+            const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
+            const severity = seq.count >= 6 ? "critical" : 
+                           seq.count >= 4 ? "warning" : "ok";
+            sequences.push({ 
+              startDate: seq.startDate,
+              endDate: seq.endDate,
+              count: seq.count,
+              showIds: seq.showIds,
+              severity 
+            });
+            maxConsecutive = Math.max(maxConsecutive, seq.count);
           }
           currentSequence = null;
         }
@@ -381,11 +388,18 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
     });
     
     // Handle final sequence
-    if (currentSequence && currentSequence.count >= 3) {
-      const severity = currentSequence.count >= 6 ? "critical" : 
-                     currentSequence.count >= 4 ? "warning" : "ok";
-      sequences.push({ ...currentSequence, severity });
-      maxConsecutive = Math.max(maxConsecutive, currentSequence.count);
+    if (currentSequence && (currentSequence as any).count >= 3) {
+      const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
+      const severity = seq.count >= 6 ? "critical" : 
+                     seq.count >= 4 ? "warning" : "ok";
+      sequences.push({ 
+        startDate: seq.startDate,
+        endDate: seq.endDate,
+        count: seq.count,
+        showIds: seq.showIds,
+        severity 
+      });
+      maxConsecutive = Math.max(maxConsecutive, seq.count);
     }
     
     analysis.push({

@@ -1,4 +1,4 @@
-export function formatDate(dateString: string): string {
+export function formatDate(dateString: string | Date): string {
   try {
     // Handle Date objects
     if (dateString instanceof Date) {
@@ -34,7 +34,7 @@ export function formatDate(dateString: string): string {
       });
     }
   } catch (error) {
-    return dateString;
+    return typeof dateString === 'string' ? dateString : dateString.toString();
   }
 }
 

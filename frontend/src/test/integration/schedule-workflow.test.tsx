@@ -5,10 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { server } from '../mocks/server';
 import { http, HttpResponse } from 'msw';
-import ScheduleEditor from '../../components/ScheduleEditor';
-import ScheduleList from '../../components/ScheduleList';
-import CompanyManagement from '../../components/CompanyManagement';
-import App from '../../App';
+import ScheduleEditor from '../../../components/ScheduleEditor';
+import ScheduleList from '../../../components/ScheduleList';
+import CompanyManagement from '../../../components/CompanyManagement';
+import App from '../../../App';
 
 // Test wrapper component
 function TestWrapper({ children }: { children: React.ReactNode }) {
@@ -16,7 +16,7 @@ function TestWrapper({ children }: { children: React.ReactNode }) {
     defaultOptions: {
       queries: {
         retry: false,
-        cacheTime: 0,
+        gcTime: 0,
       },
     },
   });
