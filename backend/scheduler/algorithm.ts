@@ -4,6 +4,8 @@ export interface AutoGenerateResult {
   success: boolean;
   assignments: Assignment[];
   errors?: string[];
+  warnings?: string[];
+  dayOffStats?: Record<string, number>;
   generationId?: string;
   generatedAt?: string;
 }
@@ -37,6 +39,8 @@ export class SchedulingAlgorithm {
   private shows: Show[];
   private assignments: Map<string, ShowAssignment>;
   private castMembers: CastMember[];
+  private roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
+  private offAssignments: Map<string, string[]> = new Map();
   
   // Cached data structures for performance
   private _sortedActiveShows: Show[] | null = null;
@@ -56,17 +60,18 @@ export class SchedulingAlgorithm {
   constructor(shows: Show[], castMembers?: CastMember[]) {
     this.shows = shows;
     this.assignments = new Map();
+    this.offAssignments = new Map();
     
     this.castMembers = castMembers || [];
     
     // Initialize empty assignments for all shows
     shows.forEach(show => {
       const showAssignment: ShowAssignment = {};
-      const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
-      roles.forEach(role => {
+      this.roles.forEach(role => {
         showAssignment[role] = "";
       });
       this.assignments.set(show.id, showAssignment);
+      this.offAssignments.set(show.id, []);
     });
   }
 
@@ -101,6 +106,359 @@ export class SchedulingAlgorithm {
       });
     }
     return this._showIndexMap;
+  }
+
+  // =====================================
+  // Day-Off Tracking Utility Functions
+  // =====================================
+
+  private getPerformerDaysOff(assignments: Assignment[]): Record<string, string[]> {
+    const performerDaysOff: Record<string, string[]> = {};
+    const showsByDate: Record<string, Show[]> = {};
+    
+    // Group shows by date
+    this.shows.filter(s => s.status === 'show').forEach(show => {
+      if (!showsByDate[show.date]) showsByDate[show.date] = [];
+      showsByDate[show.date].push(show);
+    });
+    
+    // Track which dates each performer is completely off
+    this.castMembers.forEach(member => {
+      performerDaysOff[member.name] = [];
+      
+      for (const date in showsByDate) {
+        const showsOnDate = showsByDate[date];
+        const performerAssignmentsOnDate = assignments.filter(a => 
+          a.performer === member.name && 
+          showsOnDate.some(s => s.id === a.showId)
+        );
+        
+        // If performer has no assignments on this date, they're off
+        if (performerAssignmentsOnDate.length === 0) {
+          performerDaysOff[member.name].push(date);
+        }
+      }
+    });
+    
+    return performerDaysOff;
+  }
+
+  private detectCompanyDayOff(): string | null {
+    const dayOffShows = this.shows.filter(s => s.status === 'dayoff');
+    if (dayOffShows.length === 0) return null;
+    
+    // Sort by date and return the earliest
+    const sortedDayOffs = dayOffShows.sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    
+    return sortedDayOffs[0].date;
+  }
+
+  private findConsecutiveDoubleDays(): Array<{startDate: string, endDate: string, showIds: string[]}> {
+    const consecutiveDoubles: Array<{startDate: string, endDate: string, showIds: string[]}> = [];
+    const showsByDate: Record<string, Show[]> = {};
+    
+    this.shows.filter(s => s.status === 'show').forEach(show => {
+      if (!showsByDate[show.date]) showsByDate[show.date] = [];
+      showsByDate[show.date].push(show);
+    });
+    
+    const dates = Object.keys(showsByDate).sort();
+    
+    for (let i = 0; i < dates.length - 1; i++) {
+      const currentDate = dates[i];
+      const nextDate = dates[i + 1];
+      
+      // Check if consecutive days
+      const d1 = new Date(currentDate + 'T12:00:00Z');
+      const d2 = new Date(nextDate + 'T12:00:00Z');
+      const dayDiff = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
+      
+      if (dayDiff === 1 && 
+          showsByDate[currentDate].length >= 2 && 
+          showsByDate[nextDate].length >= 2) {
+        consecutiveDoubles.push({
+          startDate: currentDate,
+          endDate: nextDate,
+          showIds: [
+            ...showsByDate[currentDate].map(s => s.id),
+            ...showsByDate[nextDate].map(s => s.id)
+          ]
+        });
+      }
+    }
+    
+    return consecutiveDoubles;
+  }
+
+  private hasConsecutiveDaysOff(performer: string, showId: string, currentAssignments: Map<string, Record<string, string>>): boolean {
+    const show = this.shows.find(s => s.id === showId);
+    if (!show) return false;
+    
+    // Get all dates where performer is OFF
+    const offDates: string[] = [];
+    
+    for (const [assignedShowId, roleAssignments] of currentAssignments) {
+      const assignedShow = this.shows.find(s => s.id === assignedShowId);
+      if (!assignedShow || assignedShow.status !== 'show') continue;
+      
+      // Check if performer is assigned to this show
+      const isAssigned = Object.values(roleAssignments).includes(performer);
+      if (!isAssigned) {
+        // Check if this is a show day (not a day off status)
+        const showsOnDate = this.shows.filter(s => 
+          s.date === assignedShow.date && s.status === 'show'
+        );
+        
+        // If performer isn't assigned to any shows on this date
+        const performerShowsOnDate = showsOnDate.filter(s => {
+          const assignments = currentAssignments.get(s.id);
+          return assignments && Object.values(assignments).includes(performer);
+        });
+        
+        if (performerShowsOnDate.length === 0 && !offDates.includes(assignedShow.date)) {
+          offDates.push(assignedShow.date);
+        }
+      }
+    }
+    
+    // Add the current show date if performer would be OFF
+    if (!offDates.includes(show.date)) {
+      offDates.push(show.date);
+    }
+    
+    // Sort dates and check for consecutive days
+    offDates.sort();
+    
+    for (let i = 0; i < offDates.length - 1; i++) {
+      const d1 = new Date(offDates[i] + 'T12:00:00Z');
+      const d2 = new Date(offDates[i + 1] + 'T12:00:00Z');
+      const dayDiff = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
+      
+      if (dayDiff === 1) {
+        return true; // Found consecutive days off
+      }
+    }
+    
+    return false;
+  }
+
+  // =====================================
+  // Enhanced OFF Selection Logic
+  // =====================================
+
+  private selectOffMembersWithFairness(showId: string): string[] {
+    const show = this.shows.find(s => s.id === showId);
+    if (!show || show.status !== 'show') return [];
+    
+    const companyDayOff = this.detectCompanyDayOff();
+    const consecutiveDoubles = this.findConsecutiveDoubleDays();
+    
+    // Get all performers assigned to this show
+    const assignedToShow = new Set<string>();
+    const showAssignment = this.assignments.get(showId);
+    if (showAssignment) {
+      Object.values(showAssignment).forEach(performer => {
+        if (performer) assignedToShow.add(performer);
+      });
+    }
+    
+    // Get all performers (we'll select 4 to be OFF from those not assigned)
+    const eligibleForOff = this.castMembers
+      .map(m => m.name)
+      .filter(name => !assignedToShow.has(name));
+    
+    // If we don't have enough unassigned performers, fallback
+    if (eligibleForOff.length < 4) {
+      return eligibleForOff; // Return whatever we have
+    }
+    
+    // Calculate statistics for each performer
+    const performerStats = eligibleForOff.map(performer => {
+      let fullDaysOff = 0;
+      let totalShows = 0;
+      let consecutiveShows = 0;
+      let hasCompanyDayOff = false;
+      
+      // Count current assignments
+      for (const [assignedShowId, roleAssignments] of this.assignments) {
+        if (Object.values(roleAssignments).includes(performer)) {
+          totalShows++;
+        }
+      }
+      
+      // Count full days off
+      const daysWithShows: Record<string, number> = {};
+      const daysAssigned: Record<string, number> = {};
+      
+      this.shows.filter(s => s.status === 'show').forEach(s => {
+        if (!daysWithShows[s.date]) daysWithShows[s.date] = 0;
+        daysWithShows[s.date]++;
+      });
+      
+      for (const [assignedShowId, roleAssignments] of this.assignments) {
+        const assignedShow = this.shows.find(s => s.id === assignedShowId);
+        if (!assignedShow || assignedShow.status !== 'show') continue;
+        
+        if (Object.values(roleAssignments).includes(performer)) {
+          if (!daysAssigned[assignedShow.date]) daysAssigned[assignedShow.date] = 0;
+          daysAssigned[assignedShow.date]++;
+        }
+      }
+      
+      // Count days where performer has 0 shows
+      for (const date in daysWithShows) {
+        if (!daysAssigned[date] || daysAssigned[date] === 0) {
+          fullDaysOff++;
+        }
+      }
+      
+      // Check if this would create consecutive days off
+      const wouldCreateConsecutiveDaysOff = this.hasConsecutiveDaysOff(
+        performer, 
+        showId, 
+        this.assignments
+      );
+      
+      // Calculate current consecutive shows leading to this show
+      consecutiveShows = this.getConsecutiveShowCount(performer, showId);
+      
+      return {
+        performer,
+        fullDaysOff,
+        totalShows,
+        consecutiveShows,
+        wouldCreateConsecutiveDaysOff,
+        hasCompanyDayOff
+      };
+    });
+    
+    // Sort by priority
+    performerStats.sort((a, b) => {
+      // Priority 1: Avoid giving someone multiple full days off
+      if (companyDayOff) {
+        // If there's a company day off, everyone already has 1 day
+        // Strongly avoid giving anyone a second day off
+        if (a.fullDaysOff !== b.fullDaysOff) {
+          return a.fullDaysOff - b.fullDaysOff;
+        }
+      } else {
+        // No company day off, so aim for everyone to have exactly 1
+        const aNeedsDayOff = a.fullDaysOff === 0 ? 1 : 0;
+        const bNeedsDayOff = b.fullDaysOff === 0 ? 1 : 0;
+        if (aNeedsDayOff !== bNeedsDayOff) {
+          return bNeedsDayOff - aNeedsDayOff; // Prioritize those with 0 days off
+        }
+      }
+      
+      // Priority 2: Avoid consecutive days off (penalty for those who would create them)
+      if (a.wouldCreateConsecutiveDaysOff !== b.wouldCreateConsecutiveDaysOff) {
+        return a.wouldCreateConsecutiveDaysOff ? 1 : -1;
+      }
+      
+      // Priority 3: Workload balance (prefer those with more shows)
+      if (a.totalShows !== b.totalShows) {
+        return b.totalShows - a.totalShows;
+      }
+      
+      // Priority 4: Consecutive show count (help those working many in a row)
+      if (a.consecutiveShows !== b.consecutiveShows) {
+        return b.consecutiveShows - a.consecutiveShows;
+      }
+      
+      // Random tiebreaker
+      return Math.random() - 0.5;
+    });
+    
+    // Return top 4 performers
+    return performerStats.slice(0, 4).map(stat => stat.performer);
+  }
+
+  private getConsecutiveShowCount(performer: string, showId: string): number {
+    // Get performer's current assignments
+    const performerShows = new Set<string>();
+    for (const [currentShowId, showAssignment] of this.assignments) {
+      for (const [role, assignedPerformer] of Object.entries(showAssignment)) {
+        if (assignedPerformer === performer && role !== "OFF") {
+          performerShows.add(currentShowId);
+          break;
+        }
+      }
+    }
+    
+    // Add this show to the list
+    performerShows.add(showId);
+    
+    // Convert to sorted array by show date/time
+    const sortedShows = this.getSortedActiveShows();
+    const showIndexMap = this.getShowIndexMap();
+    
+    const performerShowIndices = Array.from(performerShows)
+      .map(id => showIndexMap.get(id))
+      .filter(index => index !== undefined)
+      .sort((a, b) => a! - b!);
+    
+    // Find longest consecutive sequence
+    let maxConsecutive = 1;
+    let currentConsecutive = 1;
+    
+    for (let i = 1; i < performerShowIndices.length; i++) {
+      const prevShow = sortedShows[performerShowIndices[i - 1]!];
+      const currentShow = sortedShows[performerShowIndices[i]!];
+      
+      if (this.areShowsConsecutive(prevShow, currentShow)) {
+        currentConsecutive++;
+        maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+      } else {
+        currentConsecutive = 1;
+      }
+    }
+    
+    return maxConsecutive;
+  }
+
+  // =====================================
+  // Validation and Warning System
+  // =====================================
+
+  private validateDayOffFairness(assignments: Assignment[]): { 
+    warnings: string[], 
+    performerDayOffCounts: Record<string, number> 
+  } {
+    const warnings: string[] = [];
+    const performerDaysOff = this.getPerformerDaysOff(assignments);
+    const performerDayOffCounts: Record<string, number> = {};
+    const companyDayOff = this.detectCompanyDayOff();
+    
+    for (const [performer, daysOff] of Object.entries(performerDaysOff)) {
+      performerDayOffCounts[performer] = daysOff.length;
+      
+      // Add company day off if it exists
+      if (companyDayOff && !daysOff.includes(companyDayOff)) {
+        performerDayOffCounts[performer]++;
+      }
+      
+      if (performerDayOffCounts[performer] >= 3) {
+        warnings.push(`⚠️ ${performer} has ${performerDayOffCounts[performer]} days off (target is 1)`);
+      } else if (performerDayOffCounts[performer] >= 2) {
+        warnings.push(`📋 ${performer} has ${performerDayOffCounts[performer]} days off (target is 1)`);
+      }
+      
+      // Check for consecutive days off
+      const sortedDaysOff = daysOff.sort();
+      for (let i = 0; i < sortedDaysOff.length - 1; i++) {
+        const d1 = new Date(sortedDaysOff[i] + 'T12:00:00Z');
+        const d2 = new Date(sortedDaysOff[i + 1] + 'T12:00:00Z');
+        const dayDiff = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
+        
+        if (dayDiff === 1) {
+          warnings.push(`📅 ${performer} has consecutive days off: ${sortedDaysOff[i]} and ${sortedDaysOff[i + 1]}`);
+        }
+      }
+    }
+    
+    return { warnings, performerDayOffCounts };
   }
 
   // FIXED: Check if assigning performer to show would violate consecutive show rule (max 6, not 3)
@@ -341,9 +699,15 @@ export class SchedulingAlgorithm {
           if (!hasCriticalErrors) {
             // Add RED day assignments
             const finalAssignments = this.assignRedDays(assignments);
+            
+            // Add fairness validation
+            const { warnings, performerDayOffCounts } = this.validateDayOffFairness(finalAssignments);
+            
             return {
               success: true,
               assignments: finalAssignments,
+              warnings: warnings,
+              dayOffStats: performerDayOffCounts,
               generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
               generatedAt: new Date().toISOString()
             };
@@ -357,10 +721,16 @@ export class SchedulingAlgorithm {
       
       if (partialResult.success || partialResult.assignments.length > 0) {
         const finalAssignments = this.assignRedDays(partialResult.assignments);
+        
+        // Add fairness validation for partial results too
+        const { warnings, performerDayOffCounts } = this.validateDayOffFairness(finalAssignments);
+        
         return {
           success: true,
           assignments: finalAssignments,
           errors: partialResult.errors,
+          warnings: warnings,
+          dayOffStats: performerDayOffCounts,
           generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
           generatedAt: new Date().toISOString()
         };
@@ -393,77 +763,135 @@ export class SchedulingAlgorithm {
 
   private assignRolesForShow(showId: string): boolean {
     const showAssignment = this.assignments.get(showId)!;
-    const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
+    const show = this.shows.find(s => s.id === showId);
     
-    // Randomize role order to avoid patterns
-    const shuffledRoles = this.shuffle(roles);
-
-    // Get roles sorted by difficulty (fewest eligible performers first)
-    const rolesByDifficulty = shuffledRoles.sort((a, b) => {
-      const aEligible = this.castMembers.filter(member => member.eligibleRoles.includes(a)).length;
-      const bEligible = this.castMembers.filter(member => member.eligibleRoles.includes(b)).length;
-      return aEligible - bEligible;
-    });
-
-    for (const role of rolesByDifficulty) {
-      const eligiblePerformers = this.castMembers
-        .filter(member => member.eligibleRoles.includes(role))
-        .filter(member => {
-          // CHECK 1: Not already assigned to this show
-          if (this.isPerformerAssignedToShow(member.name, showId)) {
-            return false;
-          }
-          
-          // CHECK 2: Won't create consecutive show violation (max 6)
-          if (!this.canAssignPerformerToShow(member.name, showId)) {
-            return false;
-          }
-          
-          // CHECK 3: Won't create weekend 4-show violation
-          if (this.wouldViolateWeekendRule(member.name, showId)) {
-            return false;
-          }
-          
-          // CHECK 4: Won't create back-to-back double days violation
-          if (this.wouldViolateBackToBackDoubleDays(member.name, showId)) {
-            return false;
-          }
-          
-          // CHECK 5: Haven't exceeded weekly limit (max 6 shows)
-          if (this.hasExceededWeeklyLimit(member.name)) {
-            return false;
-          }
-          
-          // CHECK 6: Gender constraints for female-only roles
-          if (!this.isPerformerEligibleForRole(member.name, role)) {
-            return false;
-          }
-          
-          return true;
-        })
-        .sort((a, b) => {
-          // Prioritize by show count (balance workload) with randomization
-          const aCount = this.getCurrentShowCount(a.name);
-          const bCount = this.getCurrentShowCount(b.name);
-          const countDiff = aCount - bCount;
-          
-          // If counts are close, add randomization
-          if (Math.abs(countDiff) <= 1) {
-            return Math.random() - 0.5; // Keep simple randomization for small tie-breaking
-          }
-          
-          return countDiff;
-        });
-
-      if (eligiblePerformers.length === 0) {
-        return false; // No eligible performers for this role
-      }
-
-      // Assign the best performer
-      showAssignment[role] = eligiblePerformers[0].name;
+    if (!show || show.status !== 'show') {
+      return true;
     }
-
+    
+    // Try to fill all roles first
+    const rolesToFill = this.shuffle([...this.roles]);
+    
+    for (const role of rolesToFill) {
+      if (!showAssignment[role]) {
+        const eligiblePerformers = this.getEligiblePerformers(role, showId);
+        if (eligiblePerformers.length > 0) {
+          const selected = this.selectBestPerformer(eligiblePerformers, showId, role);
+          if (selected) {
+            showAssignment[role] = selected;
+          } else {
+            return false;
+          }
+        } else {
+          return false;
+        }
+      }
+    }
+    
+    // Now assign OFF members using the new fair logic with fallback
+    try {
+      const offMembers = this.selectOffMembersWithFairness(showId);
+      
+      // Validate we got exactly 4
+      if (offMembers.length !== 4) {
+        // Fallback to old logic if new logic fails
+        // Fallback to old logic when fair selection provides insufficient candidates
+        const oldOffMembers = this.selectOffMembersOld(showId);
+        offMembers.length = 0;
+        offMembers.push(...oldOffMembers);
+      }
+      
+      // Store OFF assignments
+      this.offAssignments.get(showId)!.length = 0; // Clear existing
+      this.offAssignments.get(showId)!.push(...offMembers);
+      
+    } catch (error) {
+      // If anything fails, use old logic
+      console.error('Error in fair OFF selection, using fallback:', error);
+      const offMembers = this.selectOffMembersOld(showId);
+      this.offAssignments.get(showId)!.length = 0;
+      this.offAssignments.get(showId)!.push(...offMembers);
+    }
+    
     return true;
+  }
+
+  // Helper methods for the new assignRolesForShow structure
+
+  private getEligiblePerformers(role: Role, showId: string): CastMember[] {
+    return this.castMembers
+      .filter(member => member.eligibleRoles.includes(role))
+      .filter(member => {
+        // CHECK 1: Not already assigned to this show
+        if (this.isPerformerAssignedToShow(member.name, showId)) {
+          return false;
+        }
+        
+        // CHECK 2: Won't create consecutive show violation (max 6)
+        if (!this.canAssignPerformerToShow(member.name, showId)) {
+          return false;
+        }
+        
+        // CHECK 3: Won't create weekend 4-show violation
+        if (this.wouldViolateWeekendRule(member.name, showId)) {
+          return false;
+        }
+        
+        // CHECK 4: Won't create back-to-back double days violation
+        if (this.wouldViolateBackToBackDoubleDays(member.name, showId)) {
+          return false;
+        }
+        
+        // CHECK 5: Haven't exceeded weekly limit (max 6 shows)
+        if (this.hasExceededWeeklyLimit(member.name)) {
+          return false;
+        }
+        
+        // CHECK 6: Gender constraints for female-only roles
+        if (!this.isPerformerEligibleForRole(member.name, role)) {
+          return false;
+        }
+        
+        return true;
+      });
+  }
+
+  private selectBestPerformer(eligiblePerformers: CastMember[], showId: string, role: Role): string | null {
+    if (eligiblePerformers.length === 0) return null;
+    
+    const sortedPerformers = eligiblePerformers.sort((a, b) => {
+      // Prioritize by show count (balance workload) with randomization
+      const aCount = this.getCurrentShowCount(a.name);
+      const bCount = this.getCurrentShowCount(b.name);
+      const countDiff = aCount - bCount;
+      
+      // If counts are close, add randomization
+      if (Math.abs(countDiff) <= 1) {
+        return Math.random() - 0.5; // Keep simple randomization for small tie-breaking
+      }
+      
+      return countDiff;
+    });
+    
+    return sortedPerformers[0].name;
+  }
+
+  private selectOffMembersOld(showId: string): string[] {
+    // Fallback logic: simple selection of 4 people not assigned to this show
+    const assignedToShow = new Set<string>();
+    const showAssignment = this.assignments.get(showId);
+    if (showAssignment) {
+      Object.values(showAssignment).forEach(performer => {
+        if (performer) assignedToShow.add(performer);
+      });
+    }
+    
+    const availableForOff = this.castMembers
+      .map(m => m.name)
+      .filter(name => !assignedToShow.has(name))
+      .sort(() => Math.random() - 0.5); // Random selection
+    
+    return availableForOff.slice(0, 4);
   }
 
   private generatePartialSchedule(): AutoGenerateResult {
@@ -523,90 +951,156 @@ export class SchedulingAlgorithm {
     };
   }
 
-  // Assign RED days to OFF performers
+  // Assign RED days to OFF performers with company day off handling
   private assignRedDays(assignments: Assignment[]): Assignment[] {
+    const companyDayOff = this.detectCompanyDayOff();
     const allPerformers = this.castMembers.map(m => m.name);
+    
+    // If there's a company day off, handle it differently
+    if (companyDayOff) {
+      const companyDayOffShowIds = this.shows
+        .filter(s => s.date === companyDayOff && s.status === 'dayoff')
+        .map(s => s.id);
+      
+      // Mark all performers as RED on the company day off
+      const finalAssignments: Assignment[] = [...assignments];
+      
+      // Add RED day assignments for company day off
+      for (const showId of companyDayOffShowIds) {
+        for (const performer of allPerformers) {
+          finalAssignments.push({
+            showId: showId,
+            role: 'OFF',
+            performer: performer,
+            isRedDay: true
+          });
+        }
+      }
+      
+      // All other OFF assignments are not RED
+      return finalAssignments.map(a => {
+        if (a.role === 'OFF' && !companyDayOffShowIds.includes(a.showId)) {
+          return { ...a, isRedDay: false };
+        }
+        return a;
+      });
+    }
+    
+    // Original logic for individual RED days
     const showsByDate: Record<string, Show[]> = {};
     this.shows.filter(s => s.status === 'show').forEach(show => {
-        if (!showsByDate[show.date]) showsByDate[show.date] = [];
-        showsByDate[show.date].push(show);
+      if (!showsByDate[show.date]) showsByDate[show.date] = [];
+      showsByDate[show.date].push(show);
     });
-
+    
     const performerFullDaysOff: Record<string, string[]> = {};
     for (const performer of allPerformers) {
-        performerFullDaysOff[performer] = [];
+      performerFullDaysOff[performer] = [];
     }
-
-    // Step 1 & 2: Identify full days off for each performer
-    for (const date in showsByDate) {
-        const showsOnThisDate = showsByDate[date];
-        const showsOnThisDateIds = new Set(showsOnThisDate.map(s => s.id));
-
-        for (const performer of allPerformers) {
-            const performerShowsOnDate = assignments.filter(a => 
-                a.performer === performer && showsOnThisDateIds.has(a.showId)
-            );
-            // If performer has no assignments on this date, it's a full day off
-            if (performerShowsOnDate.length === 0) {
-                performerFullDaysOff[performer].push(date);
-            }
+    
+    // We need to simulate what the final assignments will look like to detect full days off
+    // Create a temporary full assignment list including our tracked OFF assignments
+    const tempAssignments: Assignment[] = [...assignments];
+    
+    // Add the OFF assignments we've tracked, but be smarter about same-day shows
+    for (const show of this.shows.filter(s => s.status === 'show')) {
+      const stageAssignments = tempAssignments.filter(a => a.showId === show.id);
+      const assignedPerformers = new Set(stageAssignments.map(a => a.performer));
+      
+      // Check if performer already works ANY show on this date
+      const showsOnSameDate = this.shows.filter(s => s.date === show.date && s.status === 'show');
+      const performersWorkingOnDate = new Set<string>();
+      
+      for (const sameDate of showsOnSameDate) {
+        const sameDateAssignments = tempAssignments.filter(a => a.showId === sameDate.id && a.role !== 'OFF');
+        sameDateAssignments.forEach(a => performersWorkingOnDate.add(a.performer));
+      }
+      
+      for (const performer of allPerformers) {
+        if (!assignedPerformers.has(performer)) {
+          // Only assign OFF if they're not working ANY show on this date
+          if (!performersWorkingOnDate.has(performer)) {
+            tempAssignments.push({
+              showId: show.id,
+              role: 'OFF',
+              performer: performer,
+              isRedDay: false
+            });
+          }
         }
+      }
     }
-
-    // Step 3: Assign one RED day per performer
+    
+    // Now identify full days off using the complete assignment picture
+    for (const date in showsByDate) {
+      const showsOnThisDate = showsByDate[date];
+      const showsOnThisDateIds = new Set(showsOnThisDate.map(s => s.id));
+      
+      for (const performer of allPerformers) {
+        const performerShowsOnDate = tempAssignments.filter(a => 
+          a.performer === performer && showsOnThisDateIds.has(a.showId)
+        );
+        
+        // Check if performer has no assignments OR all assignments are OFF
+        const hasWorkAssignments = performerShowsOnDate.some(a => a.role !== 'OFF');
+        
+        if (performerShowsOnDate.length === 0 || !hasWorkAssignments) {
+          performerFullDaysOff[performer].push(date);
+        }
+      }
+    }
+    
+    // Assign one RED day per performer (prefer single-show days)
     const performerRedDays: Record<string, string> = {};
     for (const performer of allPerformers) {
-        const fullDaysOff = performerFullDaysOff[performer];
-        if (fullDaysOff.length > 0) {
-            // Prioritize single-show days (weekdays)
-            const sortedDaysOff = fullDaysOff.sort((a, b) => {
-                const showsOnA = showsByDate[a]?.length || 99;
-                const showsOnB = showsByDate[b]?.length || 99;
-                return showsOnA - showsOnB;
-            });
-            performerRedDays[performer] = sortedDaysOff[0];
-        }
+      const fullDaysOff = performerFullDaysOff[performer];
+      if (fullDaysOff.length > 0) {
+        const sortedDaysOff = fullDaysOff.sort((a, b) => {
+          const showsOnA = showsByDate[a]?.length || 99;
+          const showsOnB = showsByDate[b]?.length || 99;
+          return showsOnA - showsOnB;
+        });
+        performerRedDays[performer] = sortedDaysOff[0];
+      }
     }
-
-    // Step 4: Create final assignments including OFF and RED days
+    
+    // Create final assignments with RED day markers
     const finalAssignments: Assignment[] = [];
     
-    // Add stage assignments
-    for (const assignment of assignments) {
-        if (assignment.role !== 'OFF') {
-            finalAssignments.push(assignment);
+    // Add all non-OFF assignments
+    finalAssignments.push(...assignments.filter(a => a.role !== 'OFF').map(a => ({ ...a, isRedDay: false })));
+    
+    // Add OFF assignments with correct RED day markers
+    for (const show of this.shows.filter(s => s.status === 'show')) {
+      const stageAssignments = finalAssignments.filter(a => a.showId === show.id && a.role !== 'OFF');
+      const assignedPerformers = new Set(stageAssignments.map(a => a.performer));
+      
+      for (const performer of allPerformers) {
+        if (!assignedPerformers.has(performer)) {
+          const isRedDay = performerRedDays[performer] === show.date;
+          finalAssignments.push({
+            showId: show.id,
+            role: 'OFF',
+            performer: performer,
+            isRedDay: isRedDay
+          });
         }
+      }
     }
-
-    // Add OFF assignments
-    this.shows.filter(s => s.status === 'show').forEach(show => {
-        const performersOnShow = new Set(finalAssignments.filter(a => a.showId === show.id).map(a => a.performer));
-        const offPerformers = allPerformers.filter(p => !performersOnShow.has(p));
-
-        offPerformers.forEach(performer => {
-            const isRedDay = performerRedDays[performer] === show.date;
-            finalAssignments.push({
-                showId: show.id,
-                role: 'OFF',
-                performer: performer,
-                isRedDay: isRedDay
-            });
-        });
-    });
-
+    
     return finalAssignments;
   }
 
   private clearAllAssignments(): void {
     this.clearCaches();
     
-    const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
     this.shows.forEach(show => {
       const showAssignment: ShowAssignment = {};
-      roles.forEach(role => {
+      this.roles.forEach(role => {
         showAssignment[role] = "";
       });
       this.assignments.set(show.id, showAssignment);
+      this.offAssignments.set(show.id, []);
     });
   }
 
@@ -622,6 +1116,7 @@ export class SchedulingAlgorithm {
   private convertToAssignments(): Assignment[] {
     const assignments: Assignment[] = [];
     
+    // Add stage role assignments
     for (const [showId, showAssignment] of this.assignments) {
       for (const [role, performer] of Object.entries(showAssignment)) {
         if (performer !== "") {
@@ -632,6 +1127,18 @@ export class SchedulingAlgorithm {
             isRedDay: false
           });
         }
+      }
+    }
+    
+    // Add OFF assignments from our tracked offAssignments
+    for (const [showId, offPerformers] of this.offAssignments) {
+      for (const performer of offPerformers) {
+        assignments.push({
+          showId,
+          role: 'OFF',
+          performer,
+          isRedDay: false
+        });
       }
     }
     
