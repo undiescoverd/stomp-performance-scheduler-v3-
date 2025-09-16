@@ -67,7 +67,7 @@ export function ScheduleAnalytics({ shows, assignments, castMembers }: ScheduleA
         }
       }
 
-      if (maxConsecutive >= 4) {
+      if (maxConsecutive >= 6) {
         warnings.push({ performer: member.name, count: maxConsecutive });
       }
     });
@@ -154,7 +154,7 @@ export function ScheduleAnalytics({ shows, assignments, castMembers }: ScheduleA
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            <strong>Consecutive Show Warnings:</strong> The following performers have 4+ consecutive shows, which may lead to burnout:
+            <strong>Consecutive Show Warnings:</strong> The following performers have 6+ consecutive shows, which may lead to burnout:
             <div className="mt-2 space-x-2">
               {consecutiveWarnings.map(warning => (
                 <Badge key={warning.performer} variant="destructive">

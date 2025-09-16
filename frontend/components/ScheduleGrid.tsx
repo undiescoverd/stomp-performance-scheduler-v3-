@@ -525,7 +525,7 @@ export function ScheduleGrid({
                               title={isRedDay ? 'RED Day - Not on call for entire day' : 'Regular OFF - On call'}
                             >
                               <span>{performer}</span>
-                              {isRedDay && <span className="ml-1 text-red-600 font-bold text-xs">(R)</span>}
+                              
                             </button>
                           </td>
                         );
@@ -538,9 +538,7 @@ export function ScheduleGrid({
             {performerRedDays.size > 0 && (
               <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <div className="flex items-center space-x-2 text-sm">
-                  <div className="w-4 h-4 bg-red-100 border border-red-300 rounded flex items-center justify-center">
-                    <span className="text-red-700 font-bold text-xs">R</span>
-                  </div>
+                  <div className="w-4 h-4 bg-red-100 border border-red-300 rounded"></div>
                   <span className="text-red-700 font-medium">RED Day</span>
                   <span className="text-red-600">- Performer is not on call and cannot be called in for emergency cover unless compensated</span>
                 </div>

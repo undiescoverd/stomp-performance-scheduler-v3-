@@ -369,8 +369,7 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
           // End current sequence
           if (currentSequence && currentSequence.count >= 3) {
             const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
-            const severity = seq.count >= 6 ? "critical" : 
-                           seq.count >= 4 ? "warning" : "ok";
+            const severity = seq.count >= 6 ? "critical" : "ok";
             sequences.push({ 
               startDate: seq.startDate,
               endDate: seq.endDate,
@@ -390,8 +389,7 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
     // Handle final sequence
     if (currentSequence && (currentSequence as any).count >= 3) {
       const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
-      const severity = seq.count >= 6 ? "critical" : 
-                     seq.count >= 4 ? "warning" : "ok";
+      const severity = seq.count >= 6 ? "critical" : "ok";
       sequences.push({ 
         startDate: seq.startDate,
         endDate: seq.endDate,

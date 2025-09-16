@@ -97,7 +97,7 @@ export function ExportControls({
       const assignment = assignments.find(a => 
         a.showId === showId && a.performer === performer && a.isRedDay
       );
-      return assignment?.isRedDay ? ' (R)' : '';
+      return '';
     };
 
     // Generate table rows for roles
@@ -313,7 +313,7 @@ export function ExportControls({
         
         <div style="margin-top: 15px; font-size: 10px; color: #666;">
             <div style="margin-bottom: 5px;"><strong>Legend:</strong></div>
-            <div style="margin-bottom: 3px;">• (R) = RED Day - Performer is not on call and cannot be called in for emergency cover unless compensated</div>
+            <div style="margin-bottom: 3px;">• RED Day - Performer is not on call and cannot be called in for emergency cover unless compensated</div>
             <div>• TRAVEL/DAY OFF days show special status instead of individual assignments</div>
         </div>
     </div>
