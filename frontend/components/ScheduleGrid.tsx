@@ -29,6 +29,7 @@ interface ScheduleGridProps {
   isSaving?: boolean;
   isEditing?: boolean;
   onAssignmentUpdate?: (assignments: Assignment[]) => void;
+  onResetShowTimes?: () => void;
 }
 
 export function ScheduleGrid({
@@ -50,7 +51,8 @@ export function ScheduleGrid({
   onSave,
   isSaving = false,
   isEditing = false,
-  onAssignmentUpdate
+  onAssignmentUpdate,
+  onResetShowTimes
 }: ScheduleGridProps) {
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const { toast } = useToast();
@@ -241,11 +243,19 @@ export function ScheduleGrid({
   };
 
   const handleHardReset = () => {
-    if (confirm('This will completely clear all assignments and generate a fresh schedule. This action cannot be undone. Continue?')) {
+    if (confirm('This will clear all assignments, reset all show statuses to "Show", and restore default show times. This action cannot be undone. Continue?')) {
+      // Clear all assignments
       onClearAll();
-      setTimeout(() => {
-        onAutoGenerate();
-      }, 100);
+      
+      // Reset all show times and statuses to defaults
+      if (onResetShowTimes) {
+        onResetShowTimes();
+      }
+      
+      toast({
+        title: "Hard Reset Complete",
+        description: "All assignments cleared, show statuses and times reset to defaults"
+      });
     }
   };
 
@@ -333,18 +343,6 @@ export function ScheduleGrid({
         <div className="flex items-center justify-between">
           <CardTitle>Cast Schedule</CardTitle>
           <div className="flex items-center space-x-2">
-            {visibleShows.length > 0 && (
-              <div className="flex items-center space-x-2 mr-4 px-3 py-1 bg-blue-50 rounded-lg border border-blue-200">
-                <Calendar className="h-4 w-4 text-blue-600" />
-                <span className="text-sm text-blue-700 font-medium">Start Date:</span>
-                <Input
-                  type="date"
-                  value={visibleShows[0]?.date || ''}
-                  onChange={(e) => handleBulkDateUpdate(e.target.value)}
-                  className="text-xs h-7 w-36 border-blue-300 focus:border-blue-500 bg-white"
-                />
-              </div>
-            )}
             <Button
               variant="outline"
               size="sm"

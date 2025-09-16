@@ -170,22 +170,22 @@ export default function ScheduleEditor() {
     const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
     const defaultShows: Show[] = [
-      // Tuesday
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 1 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
-      // Wednesday  
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
-      // Thursday
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 3 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
-      // Friday
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 4 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
-      // Saturday matinee
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '14:30', callTime: '13:30', status: 'show' },
-      // Saturday evening
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
-      // Sunday matinee
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '14:30', callTime: '13:30', status: 'show' },
-      // Sunday evening
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '18:30', callTime: '17:30', status: 'show' }
+      // Tuesday - 8pm Show, 5pm Call
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 1 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '17:00', status: 'show' },
+      // Wednesday - 8pm Show, 6pm Call
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      // Thursday - 8pm Show, 6pm Call
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 3 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      // Friday - 8pm Show, 6pm Call
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 4 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      // Saturday matinee - 3pm Show
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '15:00', callTime: '13:30', status: 'show' },
+      // Saturday evening - 8pm Show
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      // Sunday matinee - 3pm Show
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '15:00', callTime: '13:30', status: 'show' },
+      // Sunday evening - 6pm Show
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '18:00', callTime: '16:30', status: 'show' }
     ];
     
     return defaultShows;
@@ -406,6 +406,48 @@ export default function ScheduleEditor() {
     }
   };
 
+  // Helper function to get default show times based on day of week
+  const getDefaultShowTimes = (date: string): { time: string; callTime: string } => {
+    const showDate = new Date(date);
+    const dayOfWeek = showDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    
+    switch (dayOfWeek) {
+      case 2: // Tuesday - 8pm Show, 5pm Call
+        return { time: '20:00', callTime: '17:00' };
+      case 3: // Wednesday - 8pm Show, 6pm Call
+      case 4: // Thursday - 8pm Show, 6pm Call  
+      case 5: // Friday - 8pm Show, 6pm Call
+        return { time: '20:00', callTime: '18:00' };
+      case 6: // Saturday - depends on if it's matinee or evening
+        // For Saturday, we need to check if this is the first or second show of the day
+        const saturdayShows = shows.filter(s => s.date === date);
+        const isMatinee = saturdayShows.length === 0 || saturdayShows.some(s => s.time === '15:00');
+        return isMatinee ? 
+          { time: '15:00', callTime: '13:30' } : // Matinee
+          { time: '20:00', callTime: '18:00' };   // Evening
+      case 0: // Sunday - depends on if it's matinee or evening
+        const sundayShows = shows.filter(s => s.date === date);
+        const isSundayMatinee = sundayShows.length === 0 || sundayShows.some(s => s.time === '15:00');
+        return isSundayMatinee ?
+          { time: '15:00', callTime: '13:30' } : // Matinee
+          { time: '18:00', callTime: '16:30' };   // Evening
+      default:
+        return { time: '20:00', callTime: '18:00' }; // Default fallback
+    }
+  };
+
+  const handleResetShowTimes = () => {
+    setShows(prev => prev.map(show => {
+      const defaultTimes = getDefaultShowTimes(show.date);
+      return {
+        ...show,
+        time: defaultTimes.time,
+        callTime: defaultTimes.callTime,
+        status: 'show' as const
+      };
+    }));
+  };
+
   // Handle assignment updates from the grid (for RED day toggles)
   const handleAssignmentUpdate = (updatedAssignments: Assignment[]) => {
     setAssignments(updatedAssignments);
@@ -523,6 +565,7 @@ export default function ScheduleEditor() {
         isSaving={createMutation.isPending || updateMutation.isPending}
         isEditing={isEditing}
         onAssignmentUpdate={handleAssignmentUpdate}
+        onResetShowTimes={handleResetShowTimes}
       />
 
       {/* Analytics */}

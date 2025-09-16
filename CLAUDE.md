@@ -26,7 +26,7 @@ encore gen client --target leap # Generate frontend client from backend API
 ```bash
 cd frontend
 bun install                    # Install dependencies
-npx vite dev                   # Start dev server (typically http://localhost:5173)
+bun run dev                    # Start dev server (typically http://localhost:5173)
 ```
 
 ### Testing
@@ -71,6 +71,14 @@ The application models theatrical scheduling with these core entities:
 - Gender-specific roles: "Bin" and "Cornish" are female-only roles
 - Complex scheduling algorithm handles consecutive show constraints and RED day management
 - Cast member eligibility restricted by predefined role assignments
+
+### Recent Features & Improvements
+- **Professional PDF Export**: STOMP-formatted PDF schedules with proper layout and branding
+- **Live Week Updates**: Dynamic week number calculation and display in scheduler title
+- **Algorithm Determinism**: Fixed caching and seeding issues for consistent schedule generation
+- **Consecutive Show Optimization**: Improved warnings (only for 6+ consecutive shows)
+- **Clean RED Day Display**: Removed redundant 'R' indicators from RED day displays
+- **Enhanced UI**: Improved schedule editor with better visual design and usability
 
 ## File Organization
 
