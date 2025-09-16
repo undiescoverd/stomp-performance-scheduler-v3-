@@ -74,8 +74,8 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
               }
             }
             
-            // CRITICAL: Must never exceed 3 consecutive shows
-            expect(maxConsecutive).toBeLessThanOrEqual(3, 
+            // UPDATED: Must never exceed 6 consecutive shows (changed from 3)
+            expect(maxConsecutive).toBeLessThanOrEqual(6, 
               `${member.name} has ${maxConsecutive} consecutive shows - CRITICAL VIOLATION! Shows: ${memberShows.map(s => `${s.date} ${s.time}`).join(', ')}`
             );
           }
@@ -103,9 +103,9 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
         ["show3", { "Sarge": "PHIL" }]
       ]);
       
-      // This should return false - cannot assign PHIL to show4 as it would create 4 consecutive
+      // This should return true - can assign PHIL to show4 as it would create 4 consecutive (allowed up to 6)
       const canAssign = (testAlgorithm as any).canAssignPerformerToShow("PHIL", "show4");
-      expect(canAssign).toBe(false, "Algorithm should prevent 4th consecutive show assignment");
+      expect(canAssign).toBe(true, "Algorithm should allow 4th consecutive show assignment (up to 6 allowed)");
     });
   });
 
@@ -135,8 +135,8 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
             const sundayShows = showsByDate["2024-01-07"] || 0;
             const weekendTotal = fridayShows + saturdayShows + sundayShows;
             
-            // CRITICAL: Must never exceed 3 shows over Friday-Sunday
-            expect(weekendTotal).toBeLessThan(4, 
+            // CRITICAL: Must never exceed 4 shows over Friday-Sunday (mathematically, exactly 1 person will have 4 shows)
+            expect(weekendTotal).toBeLessThanOrEqual(4, 
               `${member.name} has ${weekendTotal} shows over Fri-Sun (${fridayShows} Fri, ${saturdayShows} Sat, ${sundayShows} Sun) - WEEKEND RULE VIOLATION!`
             );
           }
@@ -149,20 +149,22 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
         { id: "fri", date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" as const },
         { id: "sat_mat", date: "2024-01-06", time: "16:00", callTime: "14:00", status: "show" as const },
         { id: "sat_eve", date: "2024-01-06", time: "21:00", callTime: "18:00", status: "show" as const },
-        { id: "sun", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" as const }
+        { id: "sun_mat", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" as const },
+        { id: "sun_eve", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" as const }
       ];
       
       const algorithm = new SchedulingAlgorithm(weekendShows, defaultCastMembers);
       
-      // Manually assign performer to first 3 shows
+      // Manually assign performer to first 4 shows
       (algorithm as any).assignments = new Map([
         ["fri", { "Sarge": "PHIL" }],
         ["sat_mat", { "Sarge": "PHIL" }], 
-        ["sat_eve", { "Sarge": "PHIL" }]
+        ["sat_eve", { "Sarge": "PHIL" }],
+        ["sun_mat", { "Sarge": "PHIL" }]
       ]);
       
-      // Should prevent assignment to Sunday (would create 4-show weekend)
-      const wouldViolate = (algorithm as any).wouldViolateWeekendRule("PHIL", "sun");
+      // Should prevent assignment to 5th weekend show (would create 5-show weekend)
+      const wouldViolate = (algorithm as any).wouldViolateWeekendRule("PHIL", "sun_eve");
       expect(wouldViolate).toBe(true, "Algorithm should detect weekend rule violation");
     });
   });

@@ -1,9 +1,11 @@
-import { Role, Show, Assignment, CastMember } from "./types";
+import { Role, Show, Assignment, CastMember, FEMALE_ONLY_ROLES } from "./types";
 
 export interface AutoGenerateResult {
   success: boolean;
   assignments: Assignment[];
   errors?: string[];
+  generationId?: string;
+  generatedAt?: string;
 }
 
 export interface ConstraintResult {
@@ -40,6 +42,16 @@ export class SchedulingAlgorithm {
   private _sortedActiveShows: Show[] | null = null;
   private _showIndexMap: Map<string, number> | null = null;
   private _performerShowCache: Map<string, PerformerShowData> | null = null;
+
+  // Fisher-Yates shuffle for proper randomization
+  private shuffle<T>(array: T[]): T[] {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }
 
   constructor(shows: Show[], castMembers?: CastMember[]) {
     this.shows = shows;
@@ -91,7 +103,7 @@ export class SchedulingAlgorithm {
     return this._showIndexMap;
   }
 
-  // CRITICAL FIX: Check if assigning performer to show would violate consecutive show rule
+  // FIXED: Check if assigning performer to show would violate consecutive show rule (max 6, not 3)
   private canAssignPerformerToShow(performer: string, showId: string): boolean {
     const sortedShows = this.getSortedActiveShows();
     const showIndexMap = this.getShowIndexMap();
@@ -117,15 +129,15 @@ export class SchedulingAlgorithm {
       .sort((a, b) => a! - b!);
 
     // Check consecutive shows with the new assignment
-    const newIndices = [...performerShowIndices, targetIndex].sort((a, b) => a - b);
+    const newIndices = [...performerShowIndices, targetIndex].filter(index => index !== undefined).sort((a, b) => a! - b!);
     
     // Find the longest consecutive sequence
     let maxConsecutive = 1;
     let currentConsecutive = 1;
     
     for (let i = 1; i < newIndices.length; i++) {
-      const prevShow = sortedShows[newIndices[i - 1]];
-      const currentShow = sortedShows[newIndices[i]];
+      const prevShow = sortedShows[newIndices[i - 1]!];
+      const currentShow = sortedShows[newIndices[i]!];
       
       if (this.areShowsConsecutive(prevShow, currentShow)) {
         currentConsecutive++;
@@ -134,8 +146,8 @@ export class SchedulingAlgorithm {
         currentConsecutive = 1;
       }
       
-      // HARD STOP: Never allow more than 3 consecutive shows
-      if (maxConsecutive > 3) {
+      // FIXED: Allow up to 6 consecutive shows (not 3)
+      if (maxConsecutive > 6) {
         return false;
       }
     }
@@ -143,7 +155,52 @@ export class SchedulingAlgorithm {
     return true;
   }
 
-  // CRITICAL FIX: Check weekend 4-show rule (Friday-Sunday pattern)
+  // NEW: Check back-to-back double days rule (4 shows across 2 consecutive days)
+  private wouldViolateBackToBackDoubleDays(performer: string, showId: string): boolean {
+    const allShows = this.getSortedActiveShows();
+    const targetShow = allShows.find(s => s.id === showId);
+    if (!targetShow) return false;
+
+    const performerShows: Show[] = [targetShow];
+    for (const [currentShowId, showAssignment] of this.assignments) {
+        if (Object.values(showAssignment).includes(performer)) {
+            const show = allShows.find(s => s.id === currentShowId);
+            if (show && show.id !== showId) {
+                performerShows.push(show);
+            }
+        }
+    }
+
+    // Group shows by date
+    const showsByDate: Record<string, Show[]> = {};
+    performerShows.forEach(show => {
+      if (!showsByDate[show.date]) showsByDate[show.date] = [];
+      showsByDate[show.date].push(show);
+    });
+
+    // Check for back-to-back double days
+    const dates = Object.keys(showsByDate).sort();
+    for (let i = 0; i < dates.length - 1; i++) {
+      const currentDate = dates[i];
+      const nextDate = dates[i + 1];
+      
+      // Check if consecutive days
+      const d1 = new Date(currentDate);
+      const d2 = new Date(nextDate);
+      const dayDiff = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
+      
+      if (dayDiff === 1) {
+        // Check if both days have 2 shows (double days)
+        if (showsByDate[currentDate].length === 2 && showsByDate[nextDate].length === 2) {
+          return true; // Would create back-to-back double days
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // FIXED: Check weekend 4-show rule (Friday-Sunday pattern) - keep existing logic
   private wouldViolateWeekendRule(performer: string, showId: string): boolean {
     const allShows = this.getSortedActiveShows();
     const targetShow = allShows.find(s => s.id === showId);
@@ -179,7 +236,7 @@ export class SchedulingAlgorithm {
     }
 
     for (const weekKey in showsByWeekend) {
-        if (showsByWeekend[weekKey].length >= 4) {
+        if (showsByWeekend[weekKey].length > 4) {
             return true;
         }
     }
@@ -223,6 +280,25 @@ export class SchedulingAlgorithm {
     return performerShows.size;
   }
 
+  // NEW: Check if performer is eligible for role (including gender constraints)
+  private isPerformerEligibleForRole(performer: string, role: Role): boolean {
+    const castMember = this.castMembers.find(m => m.name === performer);
+    if (!castMember) return false;
+    
+    // Check if performer can do this role
+    if (!castMember.eligibleRoles.includes(role)) return false;
+    
+    // Check gender constraints for female-only roles
+    if (FEMALE_ONLY_ROLES.includes(role)) {
+      // For now, we'll use the existing cast member names to determine gender
+      // In a real implementation, you'd have gender in the CastMember interface
+      const femaleNames = ["MOLLY", "JASMINE", "SERENA"];
+      if (!femaleNames.includes(performer)) return false;
+    }
+    
+    return true;
+  }
+
   public async autoGenerate(): Promise<AutoGenerateResult> {
     try {
       this.clearCaches();
@@ -245,7 +321,7 @@ export class SchedulingAlgorithm {
       // Clear existing assignments
       this.clearAllAssignments();
 
-      // Try multiple attempts to find a valid assignment with relaxed constraints
+      // Try multiple attempts to find a valid assignment with corrected constraints
       for (let attempt = 0; attempt < 100; attempt++) {
         this.clearAllAssignments();
         
@@ -253,9 +329,13 @@ export class SchedulingAlgorithm {
           const assignments = this.convertToAssignments();
           const validation = this.validateSchedule(assignments);
           
-          // Be more lenient on consecutive shows - allow warnings but not critical errors
+          // Check for critical errors (exactly 8 on stage, correct number off)
           const hasCriticalErrors = validation.errors.some(error => 
-            error.includes("CRITICAL") || error.includes("multiple roles") || error.includes("not eligible")
+            error.includes("exactly 8") || error.includes("needs exactly") || 
+            error.includes("multiple roles") || error.includes("not eligible") ||
+            error.includes("exceeds maximum of 6 consecutive") ||
+            error.includes("back-to-back double days") ||
+            error.includes("shows over a weekend") || error.includes("exceeds maximum of 4")
           );
           
           if (!hasCriticalErrors) {
@@ -263,7 +343,9 @@ export class SchedulingAlgorithm {
             const finalAssignments = this.assignRedDays(assignments);
             return {
               success: true,
-              assignments: finalAssignments
+              assignments: finalAssignments,
+              generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
+              generatedAt: new Date().toISOString()
             };
           }
         }
@@ -278,7 +360,9 @@ export class SchedulingAlgorithm {
         return {
           success: true,
           assignments: finalAssignments,
-          errors: partialResult.errors
+          errors: partialResult.errors,
+          generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
+          generatedAt: new Date().toISOString()
         };
       }
 
@@ -297,7 +381,7 @@ export class SchedulingAlgorithm {
     const sortedShows = this.getSortedActiveShows();
     
     // Randomize order of shows and roles to avoid getting stuck in patterns
-    const shuffledShows = [...sortedShows].sort(() => Math.random() - 0.5);
+    const shuffledShows = this.shuffle(sortedShows);
     
     for (const show of shuffledShows) {
       if (!this.assignRolesForShow(show.id)) {
@@ -312,7 +396,7 @@ export class SchedulingAlgorithm {
     const roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
     
     // Randomize role order to avoid patterns
-    const shuffledRoles = [...roles].sort(() => Math.random() - 0.5);
+    const shuffledRoles = this.shuffle(roles);
 
     // Get roles sorted by difficulty (fewest eligible performers first)
     const rolesByDifficulty = shuffledRoles.sort((a, b) => {
@@ -330,7 +414,7 @@ export class SchedulingAlgorithm {
             return false;
           }
           
-          // CHECK 2: Won't create consecutive show violation (max 3)
+          // CHECK 2: Won't create consecutive show violation (max 6)
           if (!this.canAssignPerformerToShow(member.name, showId)) {
             return false;
           }
@@ -340,8 +424,18 @@ export class SchedulingAlgorithm {
             return false;
           }
           
-          // CHECK 4: Haven't exceeded weekly limit (max 6 shows)
+          // CHECK 4: Won't create back-to-back double days violation
+          if (this.wouldViolateBackToBackDoubleDays(member.name, showId)) {
+            return false;
+          }
+          
+          // CHECK 5: Haven't exceeded weekly limit (max 6 shows)
           if (this.hasExceededWeeklyLimit(member.name)) {
+            return false;
+          }
+          
+          // CHECK 6: Gender constraints for female-only roles
+          if (!this.isPerformerEligibleForRole(member.name, role)) {
             return false;
           }
           
@@ -355,7 +449,7 @@ export class SchedulingAlgorithm {
           
           // If counts are close, add randomization
           if (Math.abs(countDiff) <= 1) {
-            return Math.random() - 0.5;
+            return Math.random() - 0.5; // Keep simple randomization for small tie-breaking
           }
           
           return countDiff;
@@ -393,6 +487,11 @@ export class SchedulingAlgorithm {
             
             // Only check critical constraints in partial generation
             if (this.hasExceededWeeklyLimit(member.name)) {
+              return false;
+            }
+            
+            // Check gender constraints
+            if (!this.isPerformerEligibleForRole(member.name, role)) {
               return false;
             }
             
@@ -616,7 +715,7 @@ export class SchedulingAlgorithm {
       if (!isConsecutive) {
         // End current sequence if it's significant
         const sequenceLength = i - currentSequenceStart;
-        if (sequenceLength > 3) {
+        if (sequenceLength > 6) {
           const startIndex = sortedIndexes[currentSequenceStart];
           const endIndex = sortedIndexes[i - 1];
           sequences.push({
@@ -634,7 +733,7 @@ export class SchedulingAlgorithm {
 
     // Handle final sequence
     const finalSequenceLength = sortedIndexes.length - currentSequenceStart;
-    if (finalSequenceLength > 3) {
+    if (finalSequenceLength > 6) {
       const startIndex = sortedIndexes[currentSequenceStart];
       const endIndex = sortedIndexes[sortedIndexes.length - 1];
       sequences.push({
@@ -687,12 +786,12 @@ export class SchedulingAlgorithm {
       // Filter only stage assignments (not OFF)
       const stageAssignments = showAssignmentList.filter(a => a.role !== "OFF");
       
-      // Check if exactly 8 performers per show
+      // CRITICAL: Check if exactly 8 performers per show
       const uniquePerformers = new Set(stageAssignments.map(a => a.performer));
-      if (uniquePerformers.size !== 8 && stageAssignments.length > 0) {
+      if (uniquePerformers.size !== 8) {
         if (uniquePerformers.size < 8) {
           const missingCount = 8 - uniquePerformers.size;
-          warnings.push(`Show ${showDate}: Missing ${missingCount} performer${missingCount > 1 ? 's' : ''} - assign additional cast members to reach full capacity`);
+          errors.push(`Show ${showDate}: Missing ${missingCount} performer${missingCount > 1 ? 's' : ''} - must have exactly 8 on stage`);
         } else {
           errors.push(`Show ${showDate}: Has ${uniquePerformers.size} performers but can only have 8 - remove duplicate assignments`);
         }
@@ -700,33 +799,31 @@ export class SchedulingAlgorithm {
 
       // Check if all roles are filled
       const filledRoles = new Set(stageAssignments.map(a => a.role));
-      if (filledRoles.size !== 8 && stageAssignments.length > 0) {
+      if (filledRoles.size !== 8) {
         if (filledRoles.size < 8) {
           const missingRoles = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"]
             .filter(role => !filledRoles.has(role as Role));
-          warnings.push(`Show ${showDate}: Missing roles: ${missingRoles.join(", ")} - assign performers to these roles`);
+          errors.push(`Show ${showDate}: Missing roles: ${missingRoles.join(", ")} - assign performers to these roles`);
         }
       }
 
-      // Check role eligibility with specific suggestions
+      // Check role eligibility with gender constraints
       for (const assignment of stageAssignments) {
         const castMember = this.castMembers.find(m => m.name === assignment.performer);
         if (!castMember) {
-          errors.push(`Show ${showDate}: Unknown performer "${assignment.performer}" assigned to ${assignment.role} - verify performer name or add to cast list`);
+          errors.push(`Show ${showDate}: Unknown performer "${assignment.performer}" assigned to ${assignment.role}`);
         } else if (!castMember.eligibleRoles.includes(assignment.role as Role)) {
-          const eligiblePerformers = this.castMembers
-            .filter(m => m.eligibleRoles.includes(assignment.role as Role))
-            .map(m => m.name);
-          
-          if (eligiblePerformers.length > 0) {
-            errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - replace with eligible performer: ${eligiblePerformers.slice(0, 3).join(", ")}${eligiblePerformers.length > 3 ? ` or ${eligiblePerformers.length - 3} others` : ""}`);
-          } else {
-            errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - no eligible performers found for this role`);
+          errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - not in eligible roles`);
+        } else if (FEMALE_ONLY_ROLES.includes(assignment.role as Role)) {
+          // Check gender constraint for female-only roles
+          const femaleNames = ["MOLLY", "JASMINE", "SERENA"];
+          if (!femaleNames.includes(assignment.performer)) {
+            errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - role requires female performer`);
           }
         }
       }
 
-      // Check for duplicate performers in same show with specific suggestions
+      // Check for duplicate performers in same show
       const performerCounts = new Map<string, Assignment[]>();
       stageAssignments.forEach(assignment => {
         if (!performerCounts.has(assignment.performer)) {
@@ -738,25 +835,42 @@ export class SchedulingAlgorithm {
       for (const [performer, duplicateAssignments] of performerCounts) {
         if (duplicateAssignments.length > 1) {
           const roles = duplicateAssignments.map(a => a.role);
-          const otherEligiblePerformers = this.getAlternativePerformers(performer, roles as Role[], show.id);
-          
-          let suggestion = `reassign one of these roles to another performer`;
-          if (otherEligiblePerformers.length > 0) {
-            suggestion = `consider reassigning ${roles[1]} to ${otherEligiblePerformers.slice(0, 2).join(" or ")}`;
-          }
-          
-          errors.push(`Show ${showDate}: ${performer} assigned to multiple roles (${roles.join(", ")}) - ${suggestion}`);
+          errors.push(`Show ${showDate}: ${performer} assigned to multiple roles (${roles.join(", ")}) - each performer can only have one role per show`);
         }
       }
     }
 
-    // CRITICAL: Use optimized consecutive shows analysis
+    // CRITICAL: Use optimized consecutive shows analysis (max 6, not 3)
     const performerData = this.analyzeConsecutiveShows(assignments);
     for (const [memberName, data] of performerData) {
       for (const sequence of data.sequences) {
-        if (sequence.count > 3) {
-          const suggestions = this.getConsecutiveShowSuggestions(memberName, sequence, assignments, activeShows);
-          errors.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - CRITICAL VIOLATION. ${suggestions}`);
+        if (sequence.count > 6) {
+          errors.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - exceeds maximum of 6 consecutive shows`);
+        }
+      }
+    }
+
+    // NEW: Validate back-to-back double days rule
+    for (const member of this.castMembers) {
+      const performerShows = assignments
+        .filter(a => a.performer === member.name && a.role !== 'OFF')
+        .map(a => activeShows.find(s => s.id === a.showId))
+        .filter((s): s is Show => s !== undefined);
+
+      const showsByDate: Record<string, Show[]> = {};
+      performerShows.forEach(show => {
+        if (!showsByDate[show.date]) showsByDate[show.date] = [];
+        showsByDate[show.date].push(show);
+      });
+
+      const dates = Object.keys(showsByDate).sort();
+      for (let i = 0; i < dates.length - 1; i++) {
+        if (showsByDate[dates[i]].length === 2 && showsByDate[dates[i + 1]].length === 2) {
+          const d1 = new Date(dates[i]);
+          const d2 = new Date(dates[i + 1]);
+          if ((d2.getTime() - d1.getTime()) === 86400000) { // Consecutive days
+            errors.push(`${member.name} has 4 shows across 2 consecutive days (${dates[i]} and ${dates[i + 1]}) - violates back-to-back double days rule`);
+          }
         }
       }
     }
@@ -783,8 +897,8 @@ export class SchedulingAlgorithm {
         }
 
         for (const weekKey in showsByWeekend) {
-            if (showsByWeekend[weekKey].length >= 4) {
-                errors.push(`${member.name} has ${showsByWeekend[weekKey].length} shows over a weekend (Fri-Sun) - exceeds maximum of 3.`);
+            if (showsByWeekend[weekKey].length > 4) {
+                errors.push(`${member.name} has ${showsByWeekend[weekKey].length} shows over a weekend (Fri-Sun) - exceeds maximum of 4.`);
             }
         }
     }
@@ -821,18 +935,15 @@ export class SchedulingAlgorithm {
         }
     }
 
-
     // Check show distribution with specific suggestions
     const showCounts = this.getShowCounts(assignments, activeShows);
     const averageShows = activeShows.length > 0 ? activeShows.length / this.castMembers.length : 0;
     
     for (const [performer, count] of Object.entries(showCounts)) {
       if (count < 2 && count > 0 && activeShows.length >= 4) {
-        const underutilizedSuggestions = this.getUnderutilizedSuggestions(performer, assignments, activeShows);
-        warnings.push(`${performer} only has ${count} show${count === 1 ? '' : 's'} (underutilized) - ${underutilizedSuggestions}`);
+        warnings.push(`${performer} only has ${count} show${count === 1 ? '' : 's'} (underutilized)`);
       } else if (count > Math.ceil(averageShows * 1.5) && activeShows.length > 4) {
-        const overworkedSuggestions = this.getOverworkedSuggestions(performer, assignments, activeShows);
-        warnings.push(`${performer} has ${count} shows (potentially overworked) - ${overworkedSuggestions}`);
+        warnings.push(`${performer} has ${count} shows (potentially overworked)`);
       }
     }
 

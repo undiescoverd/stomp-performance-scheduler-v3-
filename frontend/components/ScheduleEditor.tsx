@@ -89,6 +89,8 @@ export default function ScheduleEditor() {
   // Auto-generate mutation
   const autoGenerateMutation = useMutation({
     mutationFn: (shows: Show[]) => backend.scheduler.autoGenerate({ shows }),
+    gcTime: 0, // Don't cache auto-generate results
+    retry: false, // Don't retry auto-generate failures
     onSuccess: (response) => {
       if (response.success) {
         setAssignments(response.assignments);
@@ -111,9 +113,10 @@ export default function ScheduleEditor() {
             variant: "destructive"
           });
         } else {
+          const genInfo = response.generationId ? ` (ID: ${response.generationId.substring(0, 8)})` : '';
           toast({
             title: "Success",
-            description: "Schedule generated successfully with improved constraints"
+            description: `Schedule generated successfully with improved constraints${genInfo}`
           });
         }
       } else {
@@ -167,14 +170,22 @@ export default function ScheduleEditor() {
     const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
     const defaultShows: Show[] = [
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 1 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '19:00', status: 'show' }, // Tuesday
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '19:00', status: 'show' }, // Wednesday
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 3 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '19:00', status: 'show' }, // Thursday
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 4 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '18:00', status: 'show' }, // Friday
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '16:00', callTime: '14:00', status: 'show' }, // Saturday matinee
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '21:00', callTime: '18:00', status: 'show' }, // Saturday evening
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '16:00', callTime: '14:30', status: 'show' }, // Sunday matinee
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '19:00', callTime: '18:00', status: 'show' }  // Sunday evening
+      // Tuesday
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 1 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
+      // Wednesday  
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
+      // Thursday
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 3 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
+      // Friday
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 4 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
+      // Saturday matinee
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '14:30', callTime: '13:30', status: 'show' },
+      // Saturday evening
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '19:30', callTime: '18:30', status: 'show' },
+      // Sunday matinee
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '14:30', callTime: '13:30', status: 'show' },
+      // Sunday evening
+      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '18:30', callTime: '17:30', status: 'show' }
     ];
     
     return defaultShows;
