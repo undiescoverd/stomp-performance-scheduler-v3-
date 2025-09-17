@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Calendar, MapPin, Edit, Trash2, Plus, Users, CheckSquare, Square } from 'lucide-react';
-import backend from '~backend/client';
+import { useAuthenticatedClient } from '../utils/authClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,14 +14,17 @@ export default function ScheduleList() {
   const { toast } = useToast();
   const [selectedSchedules, setSelectedSchedules] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const backend = useAuthenticatedClient();
 
   const { data: schedulesData, isLoading, error, refetch } = useQuery({
     queryKey: ['schedules'],
-    queryFn: () => backend.scheduler.list()
+    queryFn: () => backend?.scheduler.list(),
+    enabled: !!backend
   });
 
   // Remove confirmation dialog for faster deletion
   const handleDelete = async (id: string) => {
+    if (!backend) return;
     try {
       await backend.scheduler.deleteSchedule({ id });
       toast({
@@ -41,7 +44,7 @@ export default function ScheduleList() {
 
   // Bulk delete functionality
   const handleBulkDelete = async () => {
-    if (selectedSchedules.size === 0) return;
+    if (selectedSchedules.size === 0 || !backend) return;
     
     setIsDeleting(true);
     try {

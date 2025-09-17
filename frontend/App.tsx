@@ -6,6 +6,7 @@ import ScheduleList from './components/ScheduleList';
 import ScheduleEditor from './components/ScheduleEditor';
 import CompanyManagement from './components/CompanyManagement';
 import { AppHeader } from './components/AppHeader';
+import { AuthWrapper } from './components/AuthWrapper';
 import { FEATURE_FLAGS } from '@/config/features';
 
 // Conditionally import TourManager only if feature is enabled
@@ -26,7 +27,9 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <AppInner />
+        <AuthWrapper>
+          <AppInner />
+        </AuthWrapper>
       </Router>
       <Toaster />
     </QueryClientProvider>

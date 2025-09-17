@@ -2,9 +2,11 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Calendar, Home, Plus, Users, Map } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { UserButton, useUser } from '@clerk/clerk-react';
 import { FEATURE_FLAGS } from '@/config/features';
 
 export function AppHeader() {
+  const { user, isLoaded } = useUser();
   const location = useLocation();
   const isHomePage = location.pathname === '/';
   const isEditPage = location.pathname.includes('/schedule/');
@@ -84,6 +86,24 @@ export function AppHeader() {
                 </Link>
               </Button>
             )}
+            
+            {/* User section */}
+            <div className="flex items-center gap-4 ml-4 pl-4 border-l border-gray-200">
+              {isLoaded && user && (
+                <>
+                  <span className="text-sm text-gray-600">
+                    {user.firstName || user.emailAddresses[0].emailAddress}
+                  </span>
+                  <UserButton 
+                    appearance={{
+                      elements: {
+                        avatarBox: "w-8 h-8"
+                      }
+                    }}
+                  />
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
