@@ -5,8 +5,13 @@ import { Toaster } from '@/components/ui/toaster';
 import ScheduleList from './components/ScheduleList';
 import ScheduleEditor from './components/ScheduleEditor';
 import CompanyManagement from './components/CompanyManagement';
-import TourManager from './components/tours/TourManager';
 import { AppHeader } from './components/AppHeader';
+import { FEATURE_FLAGS } from '@/config/features';
+
+// Conditionally import TourManager only if feature is enabled
+const TourManager = FEATURE_FLAGS.MULTI_COUNTRY_TOURS 
+  ? React.lazy(() => import('./components/tours/TourManager'))
+  : null;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,7 +43,16 @@ function AppInner() {
           <Route path="/schedule/new" element={<ScheduleEditor />} />
           <Route path="/schedule/:id" element={<ScheduleEditor />} />
           <Route path="/company" element={<CompanyManagement />} />
-          <Route path="/tours" element={<TourManager />} />
+          {FEATURE_FLAGS.MULTI_COUNTRY_TOURS && TourManager && (
+            <Route 
+              path="/tours" 
+              element={
+                <React.Suspense fallback={<div>Loading tours...</div>}>
+                  <TourManager />
+                </React.Suspense>
+              } 
+            />
+          )}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

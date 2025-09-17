@@ -2,13 +2,14 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Calendar, Home, Plus, Users, Map } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FEATURE_FLAGS } from '@/config/features';
 
 export function AppHeader() {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
   const isEditPage = location.pathname.includes('/schedule/');
   const isCompanyPage = location.pathname === '/company';
-  const isToursPage = location.pathname === '/tours';
+  const isToursPage = FEATURE_FLAGS.MULTI_COUNTRY_TOURS && location.pathname === '/tours';
 
   // Determine page title based on route
   const getPageTitle = () => {
@@ -18,7 +19,7 @@ export function AppHeader() {
       return 'Edit Schedule';
     } else if (location.pathname === '/company') {
       return 'Company Management';
-    } else if (location.pathname === '/tours') {
+    } else if (FEATURE_FLAGS.MULTI_COUNTRY_TOURS && location.pathname === '/tours') {
       return 'Tour Manager';
     }
     return 'STOMP Scheduler';
@@ -29,7 +30,7 @@ export function AppHeader() {
       return 'Performance Cast Management';
     } else if (isCompanyPage) {
       return 'Manage Cast Members & Roles';
-    } else if (isToursPage) {
+    } else if (FEATURE_FLAGS.MULTI_COUNTRY_TOURS && isToursPage) {
       return 'Multi-Week Tour Management';
     }
     return 'Performance Cast Management';
@@ -66,7 +67,7 @@ export function AppHeader() {
               </Button>
             )}
             
-            {!isToursPage && (
+            {FEATURE_FLAGS.MULTI_COUNTRY_TOURS && !isToursPage && (
               <Button variant="outline" asChild>
                 <Link to="/tours" className="flex items-center space-x-2">
                   <Map className="h-4 w-4" />

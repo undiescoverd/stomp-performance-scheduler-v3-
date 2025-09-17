@@ -1,42 +1,32 @@
 import { api } from "encore.dev/api";
 import { scheduleDB } from "./db";
 import { autoGenerate } from "./auto_generate";
+import { FEATURE_FLAGS } from "../config/features";
 import { 
   Tour, 
   TourWithWeeks, 
   TourGroup,
   BulkCreateRequest,
+  BulkCreateResponse,
+  GetToursResponse,
+  DeleteTourResponse,
+  DeleteTourWeekResponse,
   Show,
   DayStatus 
 } from "./tour_types";
-
-// API Response Interfaces - defined locally to avoid import issues
-interface BulkCreateResponse {
-  success: boolean;
-  tour?: TourWithWeeks;
-  createdWeeks?: number;
-  errors?: string[];
-}
-
-interface GetToursResponse {
-  tours: TourWithWeeks[];
-  groups?: TourGroup[];
-  error?: string;
-}
-
-interface DeleteTourResponse {
-  success: boolean;
-  deletedWeeks?: number;
-}
-
-interface DeleteTourWeekResponse {
-  success: boolean;
-}
 
 // Creates a tour with bulk schedule generation
 export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
   { expose: true, method: "POST", path: "/api/tours/bulk-create" },
   async (req) => {
+    // Feature flag check
+    if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
+      return {
+        success: false,
+        errors: ["Tours feature is not available"]
+      };
+    }
+
     const tourId = generateId();
     const now = new Date();
     
@@ -193,6 +183,14 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
 export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
   { expose: true, method: "GET", path: "/api/tours" },
   async (req) => {
+    // Feature flag check
+    if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
+      return {
+        tours: [],
+        error: "Tours feature is not available"
+      };
+    }
+
     console.log("getTours called with params:", req);
     try {
       // Simple query to get all tours
@@ -346,6 +344,13 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
 export const deleteTour = api<{ id: string }, DeleteTourResponse>(
   { expose: true, method: "DELETE", path: "/api/tours/:id" },
   async (req) => {
+    // Feature flag check
+    if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
+      return {
+        success: false
+      };
+    }
+
     try {
       // Count schedules that will be deleted
       const countResult = await scheduleDB.query`
@@ -384,6 +389,13 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
 export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTourWeekResponse>(
   { expose: true, method: "DELETE", path: "/api/tours/:tourId/weeks/:weekId" },
   async (req) => {
+    // Feature flag check
+    if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
+      return {
+        success: false
+      };
+    }
+
     try {
       await scheduleDB.exec`
         DELETE FROM schedules 
