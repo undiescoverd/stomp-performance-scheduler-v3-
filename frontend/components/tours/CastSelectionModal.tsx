@@ -95,7 +95,6 @@ export function CastSelectionModal({
     }
 
     onConfirm(selected);
-    handleClose();
   };
 
   const toggleCastSelection = (memberId: string) => {
@@ -164,9 +163,28 @@ export function CastSelectionModal({
               Select exactly 12 cast members for this tour. Only active cast members can be selected.
             </DialogDescription>
             <div className="flex items-center justify-between pt-2">
-              <Badge variant={selectedCount === 12 ? "default" : "secondary"}>
-                {selectedCount}/12 selected
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={selectedCount === 12 ? "default" : "secondary"}>
+                  {selectedCount}/12 selected
+                </Badge>
+                {activeCast.length > 0 && selectedCount < 12 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const remainingSlots = 12 - selectedCount;
+                      const unselectedIds = activeCast
+                        .filter(member => !selectedCast.has(member.id))
+                        .slice(0, remainingSlots)
+                        .map(member => member.id);
+                      setSelectedCast(prev => new Set([...prev, ...unselectedIds]));
+                    }}
+                    className="text-xs"
+                  >
+                    Select All
+                  </Button>
+                )}
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -184,7 +202,7 @@ export function CastSelectionModal({
             <div className="border rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-medium">Active Cast ({activeCast.length})</h3>
-                <Badge variant="outline">Selectable</Badge>
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Selectable</Badge>
               </div>
               <ScrollArea className="h-[400px]">
                 <div className="space-y-2">
@@ -235,7 +253,7 @@ export function CastSelectionModal({
             <div className="border rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-medium">Archived Cast ({archivedCast.length})</h3>
-                <Badge variant="outline">
+                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
                   <Archive className="h-3 w-3 mr-1" />
                   Archive
                 </Badge>

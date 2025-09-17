@@ -82,6 +82,7 @@ The application models theatrical scheduling with these core entities:
 - **Consecutive Show Optimization**: Improved warnings (only for 6+ consecutive shows)
 - **Clean RED Day Display**: Removed redundant 'R' indicators from RED day displays
 - **Enhanced UI**: Improved schedule editor with better visual design and usability
+- **Tour Modal Flow Fix**: Fixed modal transition issue where WeekSetupModal failed to open after cast selection
 
 ### Tour Bulk Creation System
 - **Cast Management**: Select exactly 12 cast members with archive/activate functionality
@@ -90,6 +91,17 @@ The application models theatrical scheduling with these core entities:
 - **Tour Organization**: Folder-style view with expandable tour segments
 - **Individual Editing**: Edit any schedule after bulk creation
 - **Quick Add Cast**: Add new cast members during tour creation workflow
+
+#### Tour Creation Workflow
+1. **Cast Selection** (`CastSelectionModal`): Select exactly 12 active cast members
+2. **Week Configuration** (`WeekSetupModal`): Configure tour details, dates, and week schedules
+3. **Bulk Creation**: Generate all schedules with automatic role assignments
+4. **Tour Management**: View and edit individual weeks through `TourFolderView`
+
+**Technical Notes**: 
+- Modal state transitions are managed by `currentStep` in `TourManager`
+- Cast selection data persists between modal transitions via React state
+- WeekSetupModal requires `selectedCast` prop to render properly
 
 ## File Organization
 
