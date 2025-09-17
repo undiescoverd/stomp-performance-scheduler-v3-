@@ -87,12 +87,23 @@ export default function TourManager() {
       return result;
     },
     onSuccess: (result) => {
+      // Close modal ONLY after success
+      setCurrentStep('idle');
+      setSelectedCast([]);
+      setCreationProgress(0);
+      setCreationStatus('');
+      
+      // Refresh the tours list
       queryClient.invalidateQueries({ queryKey: ['tours'] });
       
+      // Show detailed success message
       if (result.success && result.tour) {
+        const successCount = result.createdWeeks || 0;
+        
         toast({
-          title: "Tour Created Successfully!",
-          description: `Created ${result.tour.name} with ${result.createdWeeks} weeks`
+          title: `✅ Tour "${result.tour.name}" created successfully!`,
+          description: `Created ${result.tour.weekCount || tourData?.weeks?.length || 0} weeks in ${result.tour.segmentName} with ${successCount} fully scheduled weeks.`,
+          duration: 5000,
         });
       } else {
         toast({
@@ -101,12 +112,6 @@ export default function TourManager() {
           variant: "destructive"
         });
       }
-
-      // Reset state
-      setCurrentStep('idle');
-      setSelectedCast([]);
-      setCreationProgress(0);
-      setCreationStatus('');
     },
     onError: (error: any) => {
       toast({
@@ -115,9 +120,10 @@ export default function TourManager() {
         variant: "destructive"
       });
       
-      setCurrentStep('idle');
+      // Reset progress but don't close modal on error so user can try again
       setCreationProgress(0);
       setCreationStatus('');
+      setCurrentStep('idle');
     }
   });
 

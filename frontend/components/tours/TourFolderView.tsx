@@ -1,182 +1,237 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { useNavigate } from 'react-router-dom';
+import client from '~backend/client';
 import { 
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { useToast } from '@/components/ui/use-toast';
-import { 
+  ChevronRight, 
+  ChevronDown, 
   Folder, 
   FolderOpen, 
   Calendar, 
-  MapPin, 
-  Users, 
   Eye, 
   Edit, 
   Trash2,
-  AlertTriangle
+  MapPin,
+  Clock,
+  Plus
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from 'sonner';
 import { format } from 'date-fns';
-import backend from '~backend/client';
-
-interface Tour {
-  id: string;
-  name: string;
-  segmentName: string;
-  startDate: string;
-  endDate: string;
-  castMemberIds: string[];
-  createdAt: Date;
-  updatedAt: Date;
-  weekCount: number;
-  weeks: TourWeek[];
-}
 
 interface TourWeek {
   id: string;
-  location: string;
-  week: string;
-  tourSegment: string;
+  weekNumber: number;
+  startDate: string;
+  endDate: string;
   showCount: number;
+  locationCity: string;
 }
 
-interface TourFolderViewProps {
-  onEditWeek?: (tourId: string, weekId: string) => void;
-  onViewWeek?: (tourId: string, weekId: string) => void;
+interface TourSegment {
+  id: string;
+  name: string;
+  segmentName: string;
+  parentTourName?: string;
+  startDate: string;
+  endDate: string;
+  weeks: TourWeek[];
+  createdAt?: string;
 }
 
-export function TourFolderView({ onEditWeek, onViewWeek }: TourFolderViewProps) {
+interface TourGroup {
+  tourName: string;
+  segments: TourSegment[];
+  totalWeeks: number;
+  overallStartDate: string;
+  overallEndDate: string;
+  createdAt: string;
+}
+
+export function TourFolderView({ onNewSegment }: { onNewSegment?: () => void }) {
   const [expandedTours, setExpandedTours] = useState<Set<string>>(new Set());
-  const [deleteDialog, setDeleteDialog] = useState<{
-    isOpen: boolean;
-    type: 'tour' | 'week';
-    id: string;
-    name: string;
-    tourId?: string;
-  }>({ isOpen: false, type: 'tour', id: '', name: '' });
+  const [expandedSegments, setExpandedSegments] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<{ 
+    type: 'tour' | 'segment' | 'week', 
+    id: string, 
+    tourName?: string,
+    segmentId?: string 
+  } | null>(null);
   
-  const { toast } = useToast();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  // Fetch tours
-  const { data: toursResponse, isLoading } = useQuery({
+  // Fetch tours and group them
+  const { data: toursData, isLoading, isError, error } = useQuery({
     queryKey: ['tours'],
-    queryFn: () => backend.scheduler.getTours(),
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    queryFn: async () => {
+      const data = await client.scheduler.getTours({});
+      
+      // Group tours by parent tour name
+      const grouped: { [key: string]: TourGroup } = {};
+      
+      data.tours?.forEach((tour: TourSegment) => {
+        const parentName = tour.parentTourName || tour.name;
+        
+        if (!grouped[parentName]) {
+          grouped[parentName] = {
+            tourName: parentName,
+            segments: [],
+            totalWeeks: 0,
+            overallStartDate: tour.startDate,
+            overallEndDate: tour.endDate,
+            createdAt: tour.createdAt || new Date().toISOString()
+          };
+        }
+        
+        grouped[parentName].segments.push(tour);
+        grouped[parentName].totalWeeks += tour.weeks.length;
+        
+        // Update date range
+        if (tour.startDate < grouped[parentName].overallStartDate) {
+          grouped[parentName].overallStartDate = tour.startDate;
+        }
+        if (tour.endDate > grouped[parentName].overallEndDate) {
+          grouped[parentName].overallEndDate = tour.endDate;
+        }
+      });
+      
+      return Object.values(grouped);
+    },
   });
 
-  const tours = toursResponse?.tours || [];
-
-  // Delete tour mutation
+  // Delete mutations
   const deleteTourMutation = useMutation({
-    mutationFn: (tourId: string) => backend.scheduler.deleteTour({ id: tourId }),
+    mutationFn: async (tourName: string) => {
+      // Delete all segments with this tour name
+      const tourGroup = toursData?.find(g => g.tourName === tourName);
+      if (tourGroup) {
+        await Promise.all(tourGroup.segments.map(segment =>
+          client.scheduler.deleteTour({ id: segment.id })
+        ));
+      }
+      return { success: true };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tours'] });
-      toast({
-        title: "Tour Deleted",
-        description: "Tour and all associated schedules have been deleted."
-      });
-      setDeleteDialog({ isOpen: false, type: 'tour', id: '', name: '' });
+      toast.success('Tour deleted successfully');
     },
-    onError: () => {
-      toast({
-        title: "Delete Failed",
-        description: "Failed to delete tour. Please try again.",
-        variant: "destructive"
-      });
-    }
   });
 
-  // Delete week mutation
+  const deleteSegmentMutation = useMutation({
+    mutationFn: async (segmentId: string) => {
+      return await client.scheduler.deleteTour({ id: segmentId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tours'] });
+      toast.success('Segment deleted successfully');
+    },
+  });
+
   const deleteWeekMutation = useMutation({
-    mutationFn: ({ tourId, weekId }: { tourId: string; weekId: string }) => 
-      backend.scheduler.deleteTourWeek({ tourId, weekId }),
+    mutationFn: async ({ segmentId, weekId }: { segmentId: string; weekId: string }) => {
+      return await client.scheduler.deleteTourWeek({ tourId: segmentId, weekId });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tours'] });
-      toast({
-        title: "Week Deleted",
-        description: "Schedule week has been deleted."
-      });
-      setDeleteDialog({ isOpen: false, type: 'week', id: '', name: '' });
+      toast.success('Week deleted successfully');
     },
-    onError: () => {
-      toast({
-        title: "Delete Failed",
-        description: "Failed to delete week. Please try again.",
-        variant: "destructive"
-      });
-    }
   });
 
-  const toggleTourExpanded = (tourId: string) => {
+  const toggleTourExpansion = (tourName: string) => {
     const newExpanded = new Set(expandedTours);
-    if (newExpanded.has(tourId)) {
-      newExpanded.delete(tourId);
+    if (newExpanded.has(tourName)) {
+      newExpanded.delete(tourName);
     } else {
-      newExpanded.add(tourId);
+      newExpanded.add(tourName);
     }
     setExpandedTours(newExpanded);
   };
 
-  const handleDeleteTour = (tour: Tour) => {
-    setDeleteDialog({
-      isOpen: true,
-      type: 'tour',
-      id: tour.id,
-      name: tour.name
-    });
+  const toggleSegmentExpansion = (segmentId: string) => {
+    const newExpanded = new Set(expandedSegments);
+    if (newExpanded.has(segmentId)) {
+      newExpanded.delete(segmentId);
+    } else {
+      newExpanded.add(segmentId);
+    }
+    setExpandedSegments(newExpanded);
   };
 
-  const handleDeleteWeek = (tourId: string, week: TourWeek) => {
-    setDeleteDialog({
-      isOpen: true,
-      type: 'week',
-      id: week.id,
-      name: `${week.week} - ${week.location}`,
-      tourId
-    });
+  const handleView = (weekId: string) => {
+    navigate(`/schedule/${weekId}`);
   };
 
-  const confirmDelete = () => {
-    if (deleteDialog.type === 'tour') {
-      deleteTourMutation.mutate(deleteDialog.id);
-    } else if (deleteDialog.type === 'week' && deleteDialog.tourId) {
+  const handleEdit = (weekId: string) => {
+    navigate(`/schedule/${weekId}?edit=true`);
+  };
+
+  const handleDelete = () => {
+    if (!deleteTarget) return;
+
+    if (deleteTarget.type === 'tour') {
+      deleteTourMutation.mutate(deleteTarget.id);
+    } else if (deleteTarget.type === 'segment') {
+      deleteSegmentMutation.mutate(deleteTarget.id);
+    } else if (deleteTarget.segmentId) {
       deleteWeekMutation.mutate({ 
-        tourId: deleteDialog.tourId, 
-        weekId: deleteDialog.id 
+        segmentId: deleteTarget.segmentId, 
+        weekId: deleteTarget.id 
       });
     }
+    
+    setDeleteTarget(null);
   };
 
-  const cancelDelete = () => {
-    setDeleteDialog({ isOpen: false, type: 'tour', id: '', name: '' });
+  const formatDateRange = (startDate: string, endDate: string) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}`;
   };
 
   if (isLoading) {
     return (
-      <div className="text-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-        <p className="mt-2 text-sm text-muted-foreground">Loading tours...</p>
-      </div>
+      <Card>
+        <CardContent className="p-6">
+          <div className="text-center text-gray-500">Loading tours...</div>
+        </CardContent>
+      </Card>
     );
   }
 
-  if (tours.length === 0) {
+  if (isError) {
     return (
-      <Card className="text-center py-12">
-        <CardContent>
-          <Folder className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-          <h3 className="text-lg font-medium mb-2">No Tours Created</h3>
-          <p className="text-muted-foreground mb-4">
-            Create your first tour segment to get started with bulk scheduling
-          </p>
+      <Card>
+        <CardContent className="p-6">
+          <div className="text-center text-red-500">Error loading tours: {error?.message}</div>
+          <Button onClick={() => queryClient.refetchQueries({ queryKey: ['tours'] })} className="mt-4">
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const tourGroups = toursData || [];
+
+  if (tourGroups.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-12 text-center">
+          <Folder className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+          <p className="text-gray-500">No tours created yet</p>
+          <p className="text-sm text-gray-400 mt-2">Click "Create New Tour Segment" to get started</p>
         </CardContent>
       </Card>
     );
@@ -184,158 +239,206 @@ export function TourFolderView({ onEditWeek, onViewWeek }: TourFolderViewProps) 
 
   return (
     <>
-      <div className="space-y-4">
-        {tours.map((tour: Tour) => {
-          const isExpanded = expandedTours.has(tour.id);
-          const totalWeeks = tour.weeks.length;
-          const totalShows = tour.weeks.reduce((sum: number, week: TourWeek) => sum + week.showCount, 0);
-
-          return (
-            <Card key={tour.id} className="border">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
+      <Card>
+        <CardContent className="p-4">
+          <div className="space-y-3">
+            {tourGroups.map((tourGroup) => {
+              const isTourExpanded = expandedTours.has(tourGroup.tourName);
+              
+              return (
+                <div key={tourGroup.tourName} className="border rounded-lg bg-white">
+                  {/* Parent Tour Folder */}
                   <div 
-                    className="flex items-center gap-3 cursor-pointer flex-1"
-                    onClick={() => toggleTourExpanded(tour.id)}
+                    className="flex items-center justify-between p-4 hover:bg-gray-50 cursor-pointer group"
+                    onClick={() => toggleTourExpansion(tourGroup.tourName)}
                   >
-                    {isExpanded ? (
-                      <FolderOpen className="h-5 w-5 text-blue-600" />
-                    ) : (
-                      <Folder className="h-5 w-5 text-gray-600" />
-                    )}
-                    <div>
-                      <h3 className="font-medium">{tour.name}</h3>
-                      <p className="text-sm text-muted-foreground">{tour.segmentName}</p>
+                    <div className="flex items-center gap-3">
+                      <button className="p-0">
+                        {isTourExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+                      </button>
+                      {isTourExpanded ? 
+                        <FolderOpen className="w-6 h-6 text-blue-600" /> : 
+                        <Folder className="w-6 h-6 text-blue-500" />
+                      }
+                      <div>
+                        <span className="font-semibold text-lg">{tourGroup.tourName}</span>
+                        <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                          <span>{tourGroup.segments.length} segments</span>
+                          <span>{tourGroup.totalWeeks} total weeks</span>
+                          <span>{formatDateRange(tourGroup.overallStartDate, tourGroup.overallEndDate)}</span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Created {format(new Date(tourGroup.createdAt), 'MMM d, yyyy')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Could implement add segment to existing tour
+                          toast.info('Add segment to tour coming soon');
+                        }}
+                      >
+                        <Plus className="w-4 h-4" />
+                        Add Segment
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget({ 
+                            type: 'tour', 
+                            id: tourGroup.tourName 
+                          });
+                        }}
+                        className="opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Delete Tour
+                      </Button>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {totalWeeks} weeks
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      {totalShows} shows
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteTour(tour);
-                      }}
-                      className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="text-xs text-muted-foreground mt-2">
-                  {format(new Date(tour.startDate), 'MMM d')} - {format(new Date(tour.endDate), 'MMM d, yyyy')}
-                </div>
-              </CardHeader>
-
-              {isExpanded && (
-                <CardContent className="pt-0">
-                  <div className="space-y-2">
-                    {tour.weeks.map((week: TourWeek) => (
-                      <div
-                        key={week.id}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Calendar className="h-4 w-4 text-gray-600" />
-                          <div>
-                            <p className="font-medium text-sm">{week.week}</p>
-                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
-                                {week.location}
-                              </span>
-                              <span>{week.showCount} shows</span>
-                            </div>
-                          </div>
-                        </div>
+                  {/* Tour Segments */}
+                  {isTourExpanded && (
+                    <div className="border-t bg-gray-50">
+                      {tourGroup.segments.map((segment) => {
+                        const isSegmentExpanded = expandedSegments.has(segment.id);
                         
-                        <div className="flex items-center gap-1">
-                          {onViewWeek && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => onViewWeek(tour.id, week.id)}
-                              className="h-8 w-8 p-0"
+                        return (
+                          <div key={segment.id} className="border-b last:border-b-0">
+                            {/* Segment Header */}
+                            <div
+                              className="flex items-center justify-between px-8 py-3 hover:bg-gray-100 cursor-pointer"
+                              onClick={() => toggleSegmentExpansion(segment.id)}
                             >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {onEditWeek && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => onEditWeek(tour.id, week.id)}
-                              className="h-8 w-8 p-0"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteWeek(tour.id, week)}
-                            className="h-8 w-8 p-0 text-red-600 hover:bg-red-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-          );
-        })}
-      </div>
+                              <div className="flex items-center gap-3">
+                                <button className="p-0">
+                                  {isSegmentExpanded ? 
+                                    <ChevronDown className="w-4 h-4" /> : 
+                                    <ChevronRight className="w-4 h-4" />
+                                  }
+                                </button>
+                                <MapPin className="w-4 h-4 text-gray-500" />
+                                <span className="font-medium">{segment.segmentName}</span>
+                                <span className="text-sm text-gray-500">
+                                  ({segment.weeks.length} weeks)
+                                </span>
+                                <span className="text-sm text-gray-400">
+                                  {formatDateRange(segment.startDate, segment.endDate)}
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget({ 
+                                    type: 'segment', 
+                                    id: segment.id,
+                                    tourName: tourGroup.tourName 
+                                  });
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4 mr-1" />
+                                Delete Segment
+                              </Button>
+                            </div>
+                            
+                            {/* Weeks */}
+                            {isSegmentExpanded && (
+                              <div className="bg-white">
+                                {segment.weeks.map((week) => (
+                                  <div
+                                    key={week.id}
+                                    className="flex items-center justify-between px-16 py-2 hover:bg-gray-50 border-t"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <Calendar className="w-4 h-4 text-gray-400" />
+                                      <span className="font-medium">Week {week.weekNumber}</span>
+                                      <div className="flex items-center gap-1 text-sm text-gray-600">
+                                        <MapPin className="w-3 h-3" />
+                                        {week.locationCity || segment.segmentName}
+                                      </div>
+                                      <span className="text-sm text-gray-500">
+                                        {formatDateRange(week.startDate, week.endDate)}
+                                      </span>
+                                      <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">
+                                        {week.showCount} shows
+                                      </span>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleView(week.id)}
+                                      >
+                                        <Eye className="w-4 h-4 mr-1" />
+                                        View
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleEdit(week.id)}
+                                      >
+                                        <Edit className="w-4 h-4 mr-1" />
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => setDeleteTarget({ 
+                                          type: 'week', 
+                                          id: week.id, 
+                                          segmentId: segment.id 
+                                        })}
+                                      >
+                                        <Trash2 className="w-4 h-4 mr-1" />
+                                        Delete Week
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialog.isOpen} onOpenChange={cancelDelete}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-600" />
-              Confirm Deletion
-            </DialogTitle>
-            <DialogDescription>
-              {deleteDialog.type === 'tour' ? (
-                <>
-                  Are you sure you want to delete the tour "{deleteDialog.name}"? 
-                  This will also delete all associated schedules and cannot be undone.
-                </>
-              ) : (
-                <>
-                  Are you sure you want to delete "{deleteDialog.name}"? 
-                  This will remove the schedule and cannot be undone.
-                </>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={cancelDelete}>
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={confirmDelete}
-              disabled={deleteTourMutation.isPending || deleteWeekMutation.isPending}
-            >
-              {(deleteTourMutation.isPending || deleteWeekMutation.isPending) && 
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-r-transparent" />
-              }
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === 'tour' 
+                ? `This will permanently delete the entire tour "${deleteTarget.id}" including ALL segments and weeks. This action cannot be undone.`
+                : deleteTarget?.type === 'segment'
+                ? 'This will permanently delete this segment and all its weeks. This action cannot be undone.'
+                : 'This will permanently delete this week and all its assignments. This action cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="mr-2">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700 text-white">
               Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

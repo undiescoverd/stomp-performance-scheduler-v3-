@@ -1,27 +1,27 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Calendar, MapPin, Edit, Trash2, Plus, Users } from 'lucide-react';
+import { Calendar, MapPin, Edit, Trash2, Plus, Users, CheckSquare, Square } from 'lucide-react';
 import backend from '~backend/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDate, formatTime } from '../utils/dateUtils';
 
 export default function ScheduleList() {
   const { toast } = useToast();
+  const [selectedSchedules, setSelectedSchedules] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const { data: schedulesData, isLoading, error, refetch } = useQuery({
     queryKey: ['schedules'],
     queryFn: () => backend.scheduler.list()
   });
 
+  // Remove confirmation dialog for faster deletion
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this schedule?')) {
-      return;
-    }
-
     try {
       await backend.scheduler.deleteSchedule({ id });
       toast({
@@ -36,6 +36,60 @@ export default function ScheduleList() {
         description: "Failed to delete schedule",
         variant: "destructive"
       });
+    }
+  };
+
+  // Bulk delete functionality
+  const handleBulkDelete = async () => {
+    if (selectedSchedules.size === 0) return;
+    
+    setIsDeleting(true);
+    try {
+      const deletePromises = Array.from(selectedSchedules).map(id => 
+        backend.scheduler.deleteSchedule({ id })
+      );
+      
+      await Promise.all(deletePromises);
+      
+      toast({
+        title: "Success",
+        description: `${selectedSchedules.size} schedule${selectedSchedules.size > 1 ? 's' : ''} deleted successfully`
+      });
+      
+      setSelectedSchedules(new Set());
+      refetch();
+    } catch (error) {
+      console.error('Failed to delete schedules:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete some schedules",
+        variant: "destructive"
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Individual schedule selection
+  const handleSelectSchedule = (id: string) => {
+    setSelectedSchedules(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  // Select all / Select none functionality
+  const handleSelectAll = () => {
+    const schedules = schedulesData?.schedules || [];
+    if (selectedSchedules.size === schedules.length) {
+      setSelectedSchedules(new Set());
+    } else {
+      setSelectedSchedules(new Set(schedules.map(s => s.id)));
     }
   };
 
@@ -111,25 +165,79 @@ export default function ScheduleList() {
           <h2 className="text-2xl font-semibold text-gray-900">Recent Schedules</h2>
           <p className="text-gray-600">Manage and edit your performance schedules</p>
         </div>
-        <Button asChild size="lg">
-          <Link to="/schedule/new" className="flex items-center space-x-2">
-            <Plus className="h-5 w-5" />
-            <span>New Schedule</span>
-          </Link>
-        </Button>
+        <div className="flex items-center space-x-3">
+          {selectedSchedules.size > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleBulkDelete}
+              disabled={isDeleting}
+              className="flex items-center space-x-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>Delete Selected ({selectedSchedules.size})</span>
+            </Button>
+          )}
+          <Button asChild size="lg">
+            <Link to="/schedule/new" className="flex items-center space-x-2">
+              <Plus className="h-5 w-5" />
+              <span>New Schedule</span>
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      {/* Bulk Selection Controls */}
+      {schedules.length > 0 && (
+        <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSelectAll}
+            className="flex items-center space-x-2"
+          >
+            {selectedSchedules.size === schedules.length ? (
+              <CheckSquare className="h-4 w-4" />
+            ) : (
+              <Square className="h-4 w-4" />
+            )}
+            <span>
+              {selectedSchedules.size === schedules.length ? 'Select None' : 'Select All'}
+            </span>
+          </Button>
+          {selectedSchedules.size > 0 && (
+            <span className="text-sm text-gray-600">
+              {selectedSchedules.size} of {schedules.length} schedules selected
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Schedule Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {schedules.map((schedule) => (
-          <Card key={schedule.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
+          <Card 
+            key={schedule.id} 
+            className={`hover:shadow-lg transition-all duration-200 border-l-4 ${
+              selectedSchedules.has(schedule.id) 
+                ? 'border-l-blue-500 bg-blue-50' 
+                : 'border-l-blue-500'
+            }`}
+          >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="text-xl font-bold text-gray-900">
-                    {schedule.location}
-                  </CardTitle>
-                  <p className="text-sm font-medium text-blue-600">Week {schedule.week}</p>
+                <div className="flex items-start space-x-3">
+                  <Checkbox
+                    checked={selectedSchedules.has(schedule.id)}
+                    onCheckedChange={() => handleSelectSchedule(schedule.id)}
+                    className="mt-1"
+                  />
+                  <div className="space-y-1">
+                    <CardTitle className="text-xl font-bold text-gray-900">
+                      {schedule.location}
+                    </CardTitle>
+                    <p className="text-sm font-medium text-blue-600">Week {schedule.week}</p>
+                  </div>
                 </div>
                 <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                   {schedule.shows.length} shows

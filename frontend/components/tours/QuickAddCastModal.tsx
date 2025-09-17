@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from '@/components/ui/use-toast';
 import { UserPlus } from 'lucide-react';
 import backend from '~backend/client';
@@ -29,13 +28,12 @@ interface QuickAddCastModalProps {
 
 export function QuickAddCastModal({ isOpen, onClose, onSuccess }: QuickAddCastModalProps) {
   const [name, setName] = useState('');
-  const [gender, setGender] = useState<'male' | 'female'>('male');
-  const [eligibleRoles, setEligibleRoles] = useState<Role[]>([]);
+  const [eligibleRoles, setEligibleRoles] = useState<Role[]>(ROLES);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const addMemberMutation = useMutation({
-    mutationFn: (data: { name: string; eligibleRoles: Role[]; status: 'active' }) =>
+    mutationFn: (data: { name: string; eligibleRoles: Role[]; status: 'archived' }) =>
       backend.scheduler.addMember(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['company'] });
@@ -58,8 +56,7 @@ export function QuickAddCastModal({ isOpen, onClose, onSuccess }: QuickAddCastMo
 
   const handleClose = () => {
     setName('');
-    setGender('male');
-    setEligibleRoles([]);
+    setEligibleRoles(ROLES);
     onClose();
   };
 
@@ -84,21 +81,10 @@ export function QuickAddCastModal({ isOpen, onClose, onSuccess }: QuickAddCastMo
       return;
     }
 
-    // Validate gender restrictions
-    const hasFemalOnlyRoles = eligibleRoles.some(role => FEMALE_ONLY_ROLES.includes(role));
-    if (hasFemalOnlyRoles && gender === 'male') {
-      toast({
-        title: "Error",
-        description: "Bin and Cornish roles are only available for female cast members",
-        variant: "destructive"
-      });
-      return;
-    }
-
     addMemberMutation.mutate({
       name: name.trim().toUpperCase(),
       eligibleRoles,
-      status: 'active'
+      status: 'archived'
     });
   };
 
@@ -107,35 +93,8 @@ export function QuickAddCastModal({ isOpen, onClose, onSuccess }: QuickAddCastMo
       if (prev.includes(role)) {
         return prev.filter(r => r !== role);
       } else {
-        // Check gender restrictions
-        if (FEMALE_ONLY_ROLES.includes(role) && gender === 'male') {
-          toast({
-            title: "Cannot select role",
-            description: `${role} is only available for female cast members`,
-            variant: "destructive"
-          });
-          return prev;
-        }
         return [...prev, role];
       }
-    });
-  };
-
-  const handleGenderChange = (newGender: 'male' | 'female') => {
-    setGender(newGender);
-    
-    // Remove female-only roles if switching to male
-    if (newGender === 'male') {
-      setEligibleRoles(prev => prev.filter(role => !FEMALE_ONLY_ROLES.includes(role)));
-    }
-  };
-
-  const getAvailableRoles = () => {
-    return ROLES.filter(role => {
-      if (FEMALE_ONLY_ROLES.includes(role)) {
-        return gender === 'female';
-      }
-      return true;
     });
   };
 
@@ -165,27 +124,9 @@ export function QuickAddCastModal({ isOpen, onClose, onSuccess }: QuickAddCastMo
           </div>
 
           <div className="space-y-3">
-            <Label>Gender</Label>
-            <RadioGroup 
-              value={gender} 
-              onValueChange={handleGenderChange}
-              className="flex gap-6"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="male" id="male" />
-                <Label htmlFor="male">Male</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="female" id="female" />
-                <Label htmlFor="female">Female</Label>
-              </div>
-            </RadioGroup>
-          </div>
-
-          <div className="space-y-3">
             <Label>Eligible Roles</Label>
             <div className="grid grid-cols-2 gap-3">
-              {getAvailableRoles().map((role) => (
+              {ROLES.map((role) => (
                 <div key={role} className="flex items-center space-x-2">
                   <Checkbox
                     id={role}

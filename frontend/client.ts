@@ -230,11 +230,16 @@ export namespace scheduler {
         }
 
         /**
-         * Gets all tours with their weeks
+         * Gets all tours with their weeks, optionally grouped by parent tour
          */
-        public async getTours(): Promise<ResponseType<typeof api_scheduler_tours_getTours>> {
+        public async getTours(params: RequestType<typeof api_scheduler_tours_getTours>): Promise<ResponseType<typeof api_scheduler_tours_getTours>> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                grouped: params.grouped === undefined ? undefined : String(params.grouped),
+            })
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI(`/api/tours`, {method: "GET", body: undefined})
+            const resp = await this.baseClient.callTypedAPI(`/api/tours`, {query, method: "GET", body: undefined})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_tours_getTours>
         }
 
