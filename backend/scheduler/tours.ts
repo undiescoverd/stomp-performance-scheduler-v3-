@@ -4,14 +4,34 @@ import { autoGenerate } from "./auto_generate";
 import { 
   Tour, 
   TourWithWeeks, 
-  BulkCreateRequest, 
-  BulkCreateResponse,
-  GetToursResponse,
-  DeleteTourResponse,
-  DeleteTourWeekResponse,
+  TourGroup,
+  BulkCreateRequest,
   Show,
   DayStatus 
 } from "./tour_types";
+
+// API Response Interfaces - defined locally to avoid import issues
+interface BulkCreateResponse {
+  success: boolean;
+  tour?: TourWithWeeks;
+  createdWeeks?: number;
+  errors?: string[];
+}
+
+interface GetToursResponse {
+  tours: TourWithWeeks[];
+  groups?: TourGroup[];
+  error?: string;
+}
+
+interface DeleteTourResponse {
+  success: boolean;
+  deletedWeeks?: number;
+}
+
+interface DeleteTourWeekResponse {
+  success: boolean;
+}
 
 // Creates a tour with bulk schedule generation
 export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
@@ -22,10 +42,10 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
     
     try {
       // Validate request
-      if (req.weekCount < 1 || req.weekCount > 12) {
+      if (!req.weeks || req.weeks.length === 0 || req.weeks.length > 12) {
         return {
           success: false,
-          errors: ["Week count must be between 1 and 12"]
+          errors: ["Must have between 1 and 12 weeks"]
         };
       }
 
@@ -36,50 +56,70 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
         };
       }
 
-      console.log(`Creating tour ${tourId} with name: ${req.name}`);
+      // Extract overall start and end dates from weeks
+      const startDate = req.weeks[0].startDate;
+      const endDate = req.weeks[req.weeks.length - 1].endDate;
+      
+      // Extract parent tour name (everything before " - ")
+      const parentTourName = req.tourName.includes(" - ") 
+        ? req.tourName.split(" - ")[0] 
+        : req.tourName;
 
-      // Create tour record
+      console.log(`Creating tour ${tourId} with name: ${req.tourName}`);
+
+      // Create tour record with new structure
       await scheduleDB.exec`
-        INSERT INTO tours (id, name, segment_name, start_date, end_date, cast_member_ids, created_at, updated_at)
-        VALUES (${tourId}, ${req.name}, ${req.segmentName}, ${req.startDate}, ${req.endDate}, ${JSON.stringify(req.castMemberIds)}, ${now}, ${now})
+        INSERT INTO tours (id, name, segment_name, parent_tour_name, start_date, end_date, cast_member_ids, created_at, updated_at)
+        VALUES (${tourId}, ${req.tourName}, ${req.segmentName}, ${parentTourName}, ${startDate}, ${endDate}, ${JSON.stringify(req.castMemberIds)}, ${now}, ${now})
       `;
 
-      console.log(`Tour ${tourId} created successfully`);
+      console.log(`Tour ${tourId} created successfully with parent: ${parentTourName}`);
 
       let createdWeeks = 0;
       const errors: string[] = [];
-      const weekIds: string[] = [];
+      const createdWeekData: Array<{
+        id: string;
+        weekNumber: number;
+        startDate: string;
+        endDate: string;
+        showCount: number;
+        locationCity: string;
+      }> = [];
 
       // Generate schedules for each week
-      for (let weekNum = 1; weekNum <= req.weekCount; weekNum++) {
+      for (const tourWeek of req.weeks) {
         try {
           let shows: Show[];
-          let location: string;
-
-          if (req.scheduleType === "custom" && req.customSchedule && req.customSchedule[weekNum - 1]) {
-            const customWeek = req.customSchedule[weekNum - 1];
-            shows = customWeek.shows;
-            location = customWeek.location;
+          
+          if (!tourWeek.isStandard && tourWeek.customShows) {
+            shows = tourWeek.customShows;
           } else {
-            // Generate standard 8-show week
-            const standardWeek = generateStandardWeek(weekNum);
-            shows = standardWeek.shows;
-            location = standardWeek.location;
+            // Generate standard week, accounting for travel day
+            shows = generateStandardWeekShows(tourWeek.travelDay);
           }
 
-          console.log(`Creating week ${weekNum} for tour ${tourId}`);
+          console.log(`Creating week ${tourWeek.weekNumber} for tour ${tourId} in ${tourWeek.locationCity}`);
 
-          // Create schedule entry
+          // Create schedule entry with location_city
           const scheduleId = generateId();
-          const week = `Week ${weekNum}`;
+          const week = `Week ${tourWeek.weekNumber}`;
           
           await scheduleDB.exec`
-            INSERT INTO schedules (id, location, week, shows_data, assignments_data, tour_id, tour_segment, created_at, updated_at)
-            VALUES (${scheduleId}, ${location}, ${week}, ${JSON.stringify(shows)}, ${JSON.stringify([])}, ${tourId}, ${req.segmentName}, ${now}, ${now})
+            INSERT INTO schedules (id, location, location_city, week, shows_data, assignments_data, tour_id, tour_segment, created_at, updated_at)
+            VALUES (${scheduleId}, ${tourWeek.locationCity}, ${tourWeek.locationCity}, ${week}, ${JSON.stringify(shows)}, ${JSON.stringify([])}, ${tourId}, ${req.segmentName}, ${now}, ${now})
           `;
 
-          console.log(`Week ${weekNum} schedule ${scheduleId} created`);
-          weekIds.push(scheduleId);
+          console.log(`Week ${tourWeek.weekNumber} schedule ${scheduleId} created`);
+          
+          // Track created week data
+          createdWeekData.push({
+            id: scheduleId,
+            weekNumber: tourWeek.weekNumber,
+            startDate: tourWeek.startDate,
+            endDate: tourWeek.endDate,
+            showCount: shows.length,
+            locationCity: tourWeek.locationCity
+          });
 
           // Auto-generate assignments for this week
           try {
@@ -94,44 +134,38 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
                 SET assignments_data = ${JSON.stringify(autoGenResult.assignments)}, updated_at = ${now}
                 WHERE id = ${scheduleId}
               `;
-              console.log(`Auto-generated assignments for week ${weekNum}`);
+              console.log(`Auto-generated assignments for week ${tourWeek.weekNumber}`);
             } else if (autoGenResult.errors) {
-              errors.push(`Week ${weekNum}: ${autoGenResult.errors.join(", ")}`);
+              errors.push(`Week ${tourWeek.weekNumber}: ${autoGenResult.errors.join(", ")}`);
             }
           } catch (autoGenError) {
-            console.error(`Auto-generation failed for week ${weekNum}:`, autoGenError);
-            errors.push(`Week ${weekNum}: Failed to generate assignments - ${autoGenError}`);
+            console.error(`Auto-generation failed for week ${tourWeek.weekNumber}:`, autoGenError);
+            errors.push(`Week ${tourWeek.weekNumber}: Failed to generate assignments - ${autoGenError}`);
           }
 
           createdWeeks++;
         } catch (weekError) {
-          console.error(`Failed to create week ${weekNum}:`, weekError);
-          errors.push(`Week ${weekNum}: Failed to create schedule - ${weekError}`);
+          console.error(`Failed to create week ${tourWeek.weekNumber}:`, weekError);
+          errors.push(`Week ${tourWeek.weekNumber}: Failed to create schedule - ${weekError}`);
         }
       }
 
       console.log(`Created tour ${tourId} with ${createdWeeks} weeks`);
 
-      // Return success with simple tour info instead of fetching
+      // Return success with detailed tour info
       return {
         success: true,
         tour: {
           id: tourId,
-          name: req.name,
+          name: req.tourName,
           segmentName: req.segmentName,
-          startDate: req.startDate,
-          endDate: req.endDate,
+          parentTourName: parentTourName,
+          startDate: startDate,
+          endDate: endDate,
           castMemberIds: req.castMemberIds,
-          createdAt: now,
-          updatedAt: now,
-          weekCount: createdWeeks,
-          weeks: weekIds.map((weekId, index) => ({
-            id: weekId,
-            location: `Location ${index + 1}`,
-            week: `Week ${index + 1}`,
-            tourSegment: req.segmentName,
-            showCount: 8
-          }))
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          weeks: createdWeekData
         },
         createdWeeks,
         errors: errors.length > 0 ? errors : undefined
@@ -155,71 +189,155 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
   }
 );
 
-// Gets all tours with their weeks
-export const getTours = api<{}, GetToursResponse>(
+// Gets all tours with their weeks, optionally grouped by parent tour
+export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
   { expose: true, method: "GET", path: "/api/tours" },
-  async () => {
+  async (req) => {
+    console.log("getTours called with params:", req);
     try {
-      // First check if tours table exists by querying directly
+      // Simple query to get all tours
       const rows = await scheduleDB.query`
         SELECT 
-          t.id,
-          t.name,
-          t.segment_name,
-          t.start_date,
-          t.end_date,
-          t.cast_member_ids,
-          t.created_at,
-          t.updated_at,
-          COUNT(s.id) as week_count
-        FROM tours t
-        LEFT JOIN schedules s ON t.id = s.tour_id
-        GROUP BY t.id, t.name, t.segment_name, t.start_date, t.end_date, t.cast_member_ids, t.created_at, t.updated_at
-        ORDER BY t.created_at DESC
+          id,
+          name,
+          segment_name,
+          parent_tour_name,
+          start_date,
+          end_date,
+          cast_member_ids,
+          created_at,
+          updated_at
+        FROM tours
+        ORDER BY created_at DESC
       `;
 
-      if (!Array.isArray(rows)) {
-        console.error("Database query did not return an array:", rows);
+      console.log("Database query did not return an array:", rows);
+      
+      // Convert AsyncGenerator to array
+      const rowsArray: any[] = [];
+      if (rows && typeof rows[Symbol.asyncIterator] === 'function') {
+        for await (const row of rows) {
+          rowsArray.push(row);
+        }
+      } else if (Array.isArray(rows)) {
+        rowsArray.push(...rows);
+      }
+
+      console.log(`Query returned rows: ${rowsArray.length} rows`);
+      
+      if (rowsArray.length === 0) {
+        // Debug: Check if tours table has any data
+        const countResult = await scheduleDB.query`SELECT COUNT(*) as total FROM tours`;
+        const countArray: any[] = [];
+        if (countResult && typeof countResult[Symbol.asyncIterator] === 'function') {
+          for await (const row of countResult) {
+            countArray.push(row);
+          }
+        }
+        console.log(`Total tours in database: ${countArray[0]?.total || 0}`);
+        console.log("No tours found in database");
         return { tours: [] };
       }
 
       const tours: TourWithWeeks[] = [];
       
-      for (const row of rows) {
+      for (const row of rowsArray) {
         // Get weeks for this tour
         const weekRows = await scheduleDB.query`
-          SELECT id, location, week, tour_segment
+          SELECT id, location_city, week, shows_data
           FROM schedules
           WHERE tour_id = ${row.id}
           ORDER BY week
         `;
 
-        const weeks = Array.isArray(weekRows) ? weekRows.map((week: any) => ({
-          id: week.id,
-          location: week.location,
-          week: week.week,
-          tourSegment: week.tour_segment,
-          showCount: 0 // Could be calculated from shows_data if needed
-        })) : [];
+        // Convert weekRows AsyncGenerator to array
+        const weekRowsArray: any[] = [];
+        if (weekRows && typeof weekRows[Symbol.asyncIterator] === 'function') {
+          for await (const week of weekRows) {
+            weekRowsArray.push(week);
+          }
+        } else if (Array.isArray(weekRows)) {
+          weekRowsArray.push(...weekRows);
+        }
+
+        const weeks = weekRowsArray.map((week: any, index: number) => {
+          let showCount = 0;
+          try {
+            const showsData = week.shows_data ? JSON.parse(week.shows_data) : [];
+            showCount = Array.isArray(showsData) ? showsData.length : 0;
+          } catch (e) {
+            showCount = 0;
+          }
+          
+          return {
+            id: week.id,
+            weekNumber: index + 1,
+            startDate: '',
+            endDate: '',
+            showCount: showCount,
+            locationCity: week.location_city || 'Unknown'
+          };
+        });
+        
+        // Parse cast member IDs
+        let castMemberIds: string[] = [];
+        try {
+          if (typeof row.cast_member_ids === 'string') {
+            castMemberIds = JSON.parse(row.cast_member_ids);
+          } else if (Array.isArray(row.cast_member_ids)) {
+            castMemberIds = row.cast_member_ids;
+          }
+        } catch (e) {
+          castMemberIds = [];
+        }
 
         tours.push({
           id: row.id,
           name: row.name,
           segmentName: row.segment_name,
+          parentTourName: row.parent_tour_name,
           startDate: row.start_date,
           endDate: row.end_date,
-          castMemberIds: row.cast_member_ids || [],
+          castMemberIds: castMemberIds,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
-          weekCount: Number(row.week_count) || 0,
           weeks: weeks
         });
       }
 
+      // If grouped is requested, group by parent tour name
+      if (req?.grouped) {
+        const groupMap = new Map<string, TourWithWeeks[]>();
+        
+        tours.forEach(tour => {
+          const parentName = tour.parentTourName || tour.name;
+          if (!groupMap.has(parentName)) {
+            groupMap.set(parentName, []);
+          }
+          groupMap.get(parentName)!.push(tour);
+        });
+
+        const groups: TourGroup[] = Array.from(groupMap.entries()).map(([tourName, segments]) => {
+          const allStartDates = segments.map(s => new Date(s.startDate));
+          const allEndDates = segments.map(s => new Date(s.endDate));
+          const totalWeeks = segments.reduce((sum, segment) => sum + segment.weeks.length, 0);
+          
+          return {
+            tourName,
+            createdAt: segments[0]?.createdAt || new Date().toISOString(),
+            segments: segments.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()),
+            totalWeeks,
+            overallStartDate: new Date(Math.min(...allStartDates.map(d => d.getTime()))).toISOString(),
+            overallEndDate: new Date(Math.max(...allEndDates.map(d => d.getTime()))).toISOString()
+          };
+        });
+
+        return { tours, groups };
+      }
+
       return { tours };
     } catch (error) {
-      console.error("Error fetching tours:", error);
-      return { tours: [] };
+      return { tours: [], error: String(error) };
     }
   }
 );
@@ -233,7 +351,17 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
       const countResult = await scheduleDB.query`
         SELECT COUNT(*) as count FROM schedules WHERE tour_id = ${req.id}
       `;
-      const deletedWeeks = countResult[0]?.count || 0;
+      
+      // Convert AsyncGenerator to array
+      const countArray: any[] = [];
+      if (countResult && typeof countResult[Symbol.asyncIterator] === 'function') {
+        for await (const row of countResult) {
+          countArray.push(row);
+        }
+      } else if (Array.isArray(countResult)) {
+        countArray.push(...countResult);
+      }
+      const deletedWeeks = countArray[0]?.count || 0;
 
       // Delete tour (cascades to schedules due to foreign key)
       const result = await scheduleDB.exec`
@@ -269,13 +397,12 @@ export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTour
   }
 );
 
-// Helper function to generate standard 8-show week
-function generateStandardWeek(weekNumber: number): { shows: Show[], location: string } {
-  const location = `Location ${weekNumber}`;
+// Helper function to generate standard week shows, accounting for travel days
+function generateStandardWeekShows(travelDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'none'): Show[] {
   const shows: Show[] = [];
   
-  // Generate 8 shows for a standard week (Mon-Sat with matinee on Wed/Sat)
-  const days = [
+  // Base schedule: 8 shows (Mon-Sat with matinee on Wed/Sat)
+  const baseSchedule = [
     { day: "Monday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
     { day: "Tuesday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
     { day: "Wednesday", time: "14:30", callTime: "13:30", status: "show" as DayStatus },
@@ -286,7 +413,25 @@ function generateStandardWeek(weekNumber: number): { shows: Show[], location: st
     { day: "Saturday", time: "19:30", callTime: "18:30", status: "show" as DayStatus }
   ];
 
-  days.forEach((show, index) => {
+  // Filter out shows on travel day
+  const filteredSchedule = baseSchedule.filter(show => {
+    if (!travelDay || travelDay === 'none') return true;
+    return show.day.toLowerCase() !== travelDay.toLowerCase();
+  });
+
+  // Add travel day if specified
+  if (travelDay && travelDay !== 'none') {
+    const travelDayCapitalized = travelDay.charAt(0).toUpperCase() + travelDay.slice(1);
+    filteredSchedule.push({
+      day: travelDayCapitalized,
+      time: "Travel",
+      callTime: "Travel", 
+      status: "travel" as DayStatus
+    });
+  }
+
+  // Convert to Show objects
+  filteredSchedule.forEach((show, index) => {
     shows.push({
       id: generateId(),
       date: show.day,
@@ -296,7 +441,7 @@ function generateStandardWeek(weekNumber: number): { shows: Show[], location: st
     });
   });
 
-  return { shows, location };
+  return shows;
 }
 
 // Helper function to generate unique IDs
