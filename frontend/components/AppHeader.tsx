@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Calendar, Home, Plus, Users } from 'lucide-react';
+import { Calendar, Home, Plus, Users, Map } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function AppHeader() {
@@ -8,6 +8,7 @@ export function AppHeader() {
   const isHomePage = location.pathname === '/';
   const isEditPage = location.pathname.includes('/schedule/');
   const isCompanyPage = location.pathname === '/company';
+  const isToursPage = location.pathname === '/tours';
 
   // Determine page title based on route
   const getPageTitle = () => {
@@ -17,6 +18,8 @@ export function AppHeader() {
       return 'Edit Schedule';
     } else if (location.pathname === '/company') {
       return 'Company Management';
+    } else if (location.pathname === '/tours') {
+      return 'Tour Manager';
     }
     return 'STOMP Scheduler';
   };
@@ -26,6 +29,8 @@ export function AppHeader() {
       return 'Performance Cast Management';
     } else if (isCompanyPage) {
       return 'Manage Cast Members & Roles';
+    } else if (isToursPage) {
+      return 'Multi-Week Tour Management';
     }
     return 'Performance Cast Management';
   };
@@ -61,7 +66,16 @@ export function AppHeader() {
               </Button>
             )}
             
-            {(isHomePage || isCompanyPage) && (
+            {!isToursPage && (
+              <Button variant="outline" asChild>
+                <Link to="/tours" className="flex items-center space-x-2">
+                  <Map className="h-4 w-4" />
+                  <span>Tours</span>
+                </Link>
+              </Button>
+            )}
+            
+            {(isHomePage || isCompanyPage || isToursPage) && (
               <Button asChild>
                 <Link to="/schedule/new" className="flex items-center space-x-2">
                   <Plus className="h-4 w-4" />

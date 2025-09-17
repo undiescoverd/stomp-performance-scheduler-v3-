@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import ScheduleList from './components/ScheduleList';
 import ScheduleEditor from './components/ScheduleEditor';
 import CompanyManagement from './components/CompanyManagement';
+import TourManager from './components/tours/TourManager';
 import { AppHeader } from './components/AppHeader';
 
 const queryClient = new QueryClient({
@@ -37,6 +38,7 @@ function AppInner() {
           <Route path="/schedule/new" element={<ScheduleEditor />} />
           <Route path="/schedule/:id" element={<ScheduleEditor />} />
           <Route path="/company" element={<CompanyManagement />} />
+          <Route path="/tours" element={<TourManager />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
