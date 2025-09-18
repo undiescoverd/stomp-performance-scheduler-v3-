@@ -5,9 +5,21 @@ import { Button } from '@/components/ui/button';
 import { UserButton, useUser } from '@clerk/clerk-react';
 import { FEATURE_FLAGS } from '@/config/features';
 
-export function AppHeader() {
+// Component for when authentication is enabled
+function AppHeaderWithAuth() {
   const { user, isLoaded } = useUser();
   const location = useLocation();
+  return <AppHeaderContent location={location} user={user} isLoaded={isLoaded} />;
+}
+
+// Component for when authentication is disabled
+function AppHeaderWithoutAuth() {
+  const location = useLocation();
+  return <AppHeaderContent location={location} user={null} isLoaded={true} />;
+}
+
+// Shared content component
+function AppHeaderContent({ location, user, isLoaded }: { location: any, user: any, isLoaded: boolean }) {
   const isHomePage = location.pathname === '/';
   const isEditPage = location.pathname.includes('/schedule/');
   const isCompanyPage = location.pathname === '/company';
@@ -87,26 +99,33 @@ export function AppHeader() {
               </Button>
             )}
             
-            {/* User section */}
-            <div className="flex items-center gap-4 ml-4 pl-4 border-l border-gray-200">
-              {isLoaded && user && (
-                <>
-                  <span className="text-sm text-gray-600">
-                    {user.firstName || user.emailAddresses[0].emailAddress}
-                  </span>
-                  <UserButton 
-                    appearance={{
-                      elements: {
-                        avatarBox: "w-8 h-8"
-                      }
-                    }}
-                  />
-                </>
-              )}
-            </div>
+            {/* User section - only show if authentication is enabled */}
+            {FEATURE_FLAGS.AUTHENTICATION_ENABLED && (
+              <div className="flex items-center gap-4 ml-4 pl-4 border-l border-gray-200">
+                {isLoaded && user && (
+                  <>
+                    <span className="text-sm text-gray-600">
+                      {user.firstName || user.emailAddresses[0].emailAddress}
+                    </span>
+                    <UserButton 
+                      appearance={{
+                        elements: {
+                          avatarBox: "w-8 h-8"
+                        }
+                      }}
+                    />
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
     </header>
   );
+}
+
+// Main export component that chooses between auth and non-auth versions
+export function AppHeader() {
+  return FEATURE_FLAGS.AUTHENTICATION_ENABLED ? <AppHeaderWithAuth /> : <AppHeaderWithoutAuth />;
 }
