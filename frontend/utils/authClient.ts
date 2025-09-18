@@ -14,6 +14,11 @@ export function useAuthenticatedClient() {
       
       // Use real client, not mock
       const target = import.meta.env.VITE_CLIENT_TARGET || Local;
+      console.log('Environment variables:', {
+        VITE_CLIENT_TARGET: import.meta.env.VITE_CLIENT_TARGET,
+        VITE_API_URL: import.meta.env.VITE_API_URL,
+        target: target
+      });
       const realClient = new Client(target, {
         requestInit: {
           credentials: "include",
