@@ -244,6 +244,45 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
         }
       }
     });
+
+    it('should ensure ALL performers get exactly one RED day (mandatory fairness rule)', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const result = await algorithm.autoGenerate();
+      
+      if (result.success) {
+        const redDaysByPerformer = new Map<string, string[]>();
+        
+        // Collect all RED days for each performer
+        for (const member of defaultCastMembers) {
+          const redDayShows = result.assignments.filter(a => a.performer === member.name && a.isRedDay);
+          const redDates = redDayShows.map(a => weekShows.find(s => s.id === a.showId)!.date);
+          redDaysByPerformer.set(member.name, [...new Set(redDates)]);
+        }
+        
+        // CRITICAL TEST: Every performer must have exactly one RED day
+        for (const member of defaultCastMembers) {
+          const redDays = redDaysByPerformer.get(member.name) || [];
+          expect(redDays.length).toBe(1, 
+            `${member.name} must have exactly ONE RED day. Found: ${redDays.length} RED days: ${redDays.join(', ')}`
+          );
+        }
+        
+        // Verify total RED day count equals cast member count
+        const totalRedDays = Array.from(redDaysByPerformer.values()).length;
+        expect(totalRedDays).toBe(defaultCastMembers.length, 
+          `Total RED days (${totalRedDays}) must equal cast member count (${defaultCastMembers.length})`
+        );
+        
+        // Log the results for verification
+        console.log('\n=== RED DAY ASSIGNMENTS ===');
+        for (const [performer, redDays] of redDaysByPerformer) {
+          console.log(`${performer}: ${redDays[0]} (${redDays.length} RED day)`);
+        }
+        console.log(`Total RED days assigned: ${totalRedDays}/${defaultCastMembers.length}`);
+      } else {
+        throw new Error('Schedule generation failed');
+      }
+    });
   });
 
   describe('Load Balancing', () => {

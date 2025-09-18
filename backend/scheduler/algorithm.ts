@@ -986,89 +986,112 @@ export class SchedulingAlgorithm {
       });
     }
     
-    // Original logic for individual RED days
+    // NEW LOGIC: Ensure everyone gets exactly one RED day
     const showsByDate: Record<string, Show[]> = {};
     this.shows.filter(s => s.status === 'show').forEach(show => {
       if (!showsByDate[show.date]) showsByDate[show.date] = [];
       showsByDate[show.date].push(show);
     });
     
-    const performerFullDaysOff: Record<string, string[]> = {};
+    // Get all available dates sorted
+    const availableDates = Object.keys(showsByDate).sort();
+    
+    // Create final assignments starting with all non-OFF assignments
+    const finalAssignments: Assignment[] = assignments
+      .filter(a => a.role !== 'OFF')
+      .map(a => ({ ...a, isRedDay: false }));
+    
+    // Track which performers already have natural full days off
+    const performerNaturalDaysOff: Record<string, string[]> = {};
     for (const performer of allPerformers) {
-      performerFullDaysOff[performer] = [];
+      performerNaturalDaysOff[performer] = [];
     }
     
-    // We need to simulate what the final assignments will look like to detect full days off
-    // Create a temporary full assignment list including our tracked OFF assignments
-    const tempAssignments: Assignment[] = [...assignments];
-    
-    // Add the OFF assignments we've tracked, but be smarter about same-day shows
-    for (const show of this.shows.filter(s => s.status === 'show')) {
-      const stageAssignments = tempAssignments.filter(a => a.showId === show.id);
-      const assignedPerformers = new Set(stageAssignments.map(a => a.performer));
-      
-      // Check if performer already works ANY show on this date
-      const showsOnSameDate = this.shows.filter(s => s.date === show.date && s.status === 'show');
-      const performersWorkingOnDate = new Set<string>();
-      
-      for (const sameDate of showsOnSameDate) {
-        const sameDateAssignments = tempAssignments.filter(a => a.showId === sameDate.id && a.role !== 'OFF');
-        sameDateAssignments.forEach(a => performersWorkingOnDate.add(a.performer));
-      }
+    // Identify performers who already have natural full days off
+    for (const date of availableDates) {
+      const showsOnDate = showsByDate[date];
+      const showsOnDateIds = new Set(showsOnDate.map(s => s.id));
       
       for (const performer of allPerformers) {
-        if (!assignedPerformers.has(performer)) {
-          // Only assign OFF if they're not working ANY show on this date
-          if (!performersWorkingOnDate.has(performer)) {
-            tempAssignments.push({
-              showId: show.id,
-              role: 'OFF',
-              performer: performer,
-              isRedDay: false
-            });
-          }
-        }
-      }
-    }
-    
-    // Now identify full days off using the complete assignment picture
-    for (const date in showsByDate) {
-      const showsOnThisDate = showsByDate[date];
-      const showsOnThisDateIds = new Set(showsOnThisDate.map(s => s.id));
-      
-      for (const performer of allPerformers) {
-        const performerShowsOnDate = tempAssignments.filter(a => 
-          a.performer === performer && showsOnThisDateIds.has(a.showId)
+        const performerShowsOnDate = assignments.filter(a => 
+          a.performer === performer && showsOnDateIds.has(a.showId) && a.role !== 'OFF'
         );
         
-        // Check if performer has no assignments OR all assignments are OFF
-        const hasWorkAssignments = performerShowsOnDate.some(a => a.role !== 'OFF');
-        
-        if (performerShowsOnDate.length === 0 || !hasWorkAssignments) {
-          performerFullDaysOff[performer].push(date);
+        if (performerShowsOnDate.length === 0) {
+          performerNaturalDaysOff[performer].push(date);
         }
       }
     }
     
-    // Assign one RED day per performer (prefer single-show days)
+    // Assign RED days to performers with natural days off (prefer weekdays and fewer shows)
     const performerRedDays: Record<string, string> = {};
+    
     for (const performer of allPerformers) {
-      const fullDaysOff = performerFullDaysOff[performer];
-      if (fullDaysOff.length > 0) {
-        const sortedDaysOff = fullDaysOff.sort((a, b) => {
+      const naturalDaysOff = performerNaturalDaysOff[performer];
+      if (naturalDaysOff.length > 0) {
+        // Sort by preference: weekdays first, then by number of shows (fewer preferred)
+        const sortedDaysOff = naturalDaysOff.sort((a, b) => {
+          const aIsWeekend = this.isWeekend(a);
+          const bIsWeekend = this.isWeekend(b);
+          
+          // Prefer weekdays over weekends
+          if (aIsWeekend !== bIsWeekend) {
+            return aIsWeekend ? 1 : -1;
+          }
+          
+          // Then prefer days with fewer shows
           const showsOnA = showsByDate[a]?.length || 99;
           const showsOnB = showsByDate[b]?.length || 99;
           return showsOnA - showsOnB;
         });
+        
         performerRedDays[performer] = sortedDaysOff[0];
       }
     }
     
-    // Create final assignments with RED day markers
-    const finalAssignments: Assignment[] = [];
+    // For performers without natural days off, create forced RED days
+    const performersWithoutRedDays = allPerformers.filter(p => !performerRedDays[p]);
     
-    // Add all non-OFF assignments
-    finalAssignments.push(...assignments.filter(a => a.role !== 'OFF').map(a => ({ ...a, isRedDay: false })));
+    for (const performer of performersWithoutRedDays) {
+      // Find the best day to give them off (prefer weekdays, avoid back-to-back double days)
+      let bestDate = availableDates[0];
+      let bestScore = -1;
+      
+      for (const date of availableDates) {
+        // Skip if this date is already assigned as RED day to this performer
+        if (performerRedDays[performer]) continue;
+        
+        const isWeekend = this.isWeekend(date);
+        const isBackToBackDouble = this.isBackToBackDoubleDay(date);
+        const showsOnDate = showsByDate[date];
+        
+        // Calculate score (higher is better)
+        let score = 0;
+        if (!isWeekend) score += 10; // Strongly prefer weekdays
+        if (!isBackToBackDouble) score += 5; // Avoid back-to-back double days when possible
+        score += (3 - showsOnDate.length); // Prefer days with fewer shows
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestDate = date;
+        }
+      }
+      
+      // Assign this performer to their RED day
+      performerRedDays[performer] = bestDate;
+      
+      // Remove this performer from all shows on their RED day
+      const showsOnRedDate = showsByDate[bestDate];
+      for (const show of showsOnRedDate) {
+        const existingAssignmentIndex = finalAssignments.findIndex(a => 
+          a.showId === show.id && a.performer === performer
+        );
+        if (existingAssignmentIndex !== -1) {
+          // Remove the assignment to create the day off
+          finalAssignments.splice(existingAssignmentIndex, 1);
+        }
+      }
+    }
     
     // Add OFF assignments with correct RED day markers
     for (const show of this.shows.filter(s => s.status === 'show')) {
@@ -1089,6 +1112,33 @@ export class SchedulingAlgorithm {
     }
     
     return finalAssignments;
+  }
+
+  // Helper method to determine if a date is a weekend
+  private isWeekend(date: string): boolean {
+    const dayOfWeek = new Date(date).getDay();
+    return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
+  }
+
+  // Helper method to determine if a date is part of back-to-back double show days
+  private isBackToBackDoubleDay(date: string): boolean {
+    const currentDate = new Date(date);
+    const nextDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+    const prevDate = new Date(currentDate.getTime() - 24 * 60 * 60 * 1000);
+    
+    const formatDate = (d: Date) => d.toISOString().split('T')[0];
+    
+    const currentShows = this.shows.filter(s => s.date === date && s.status === 'show').length;
+    const nextShows = this.shows.filter(s => s.date === formatDate(nextDate) && s.status === 'show').length;
+    const prevShows = this.shows.filter(s => s.date === formatDate(prevDate) && s.status === 'show').length;
+    
+    // Returns true if current day has 2+ shows AND either the next or previous day has 2+ shows
+    return currentShows >= 2 && (nextShows >= 2 || prevShows >= 2);
+  }
+
+  // Helper method to get the number of shows on a specific date
+  private getShowCountForDate(date: string): number {
+    return this.shows.filter(s => s.date === date && s.status === 'show').length;
   }
 
   private clearAllAssignments(): void {
