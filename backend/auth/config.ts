@@ -87,5 +87,18 @@ export function isAuthEnabled(): boolean {
   }
 }
 
-// Export default configuration instance
-export const authConfig = getAuthConfig();
+// Lazy-loaded configuration instance to avoid initialization during module load
+let _authConfig: AuthConfig | null = null;
+
+export function getAuthConfigInstance(): AuthConfig {
+  if (!_authConfig) {
+    _authConfig = getAuthConfig();
+  }
+  return _authConfig;
+}
+
+// For backward compatibility, export a getter
+export const authConfig = {
+  get jwtSecret() { return getAuthConfigInstance().jwtSecret; },
+  get tokenExpirationHours() { return getAuthConfigInstance().tokenExpirationHours; }
+};
