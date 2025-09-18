@@ -83,6 +83,8 @@ The application models theatrical scheduling with these core entities:
 - **Clean RED Day Display**: Removed redundant 'R' indicators from RED day displays
 - **Enhanced UI**: Improved schedule editor with better visual design and usability
 - **Tour Modal Flow Fix**: Fixed modal transition issue where WeekSetupModal failed to open after cast selection
+- **Authentication System Fix**: Removed broken auth dependencies and temporarily disabled authentication for stability
+- **Production Deployment Fix**: Resolved critical compilation errors preventing Vercel deployment
 
 ### Tour Bulk Creation System
 - **Cast Management**: Select exactly 12 cast members with archive/activate functionality
@@ -130,3 +132,31 @@ The application models theatrical scheduling with these core entities:
 - E2E tests require both backend and frontend running
 - TailwindCSS v4 is configured with custom animation support
 - MSW is configured for API mocking in tests
+
+## Recent Critical Fixes (December 2024)
+
+### Authentication System Overhaul
+- **Issue**: Missing auth module imports causing backend compilation failures
+- **Files Fixed**: 
+  - `backend/scheduler/create.ts` - Removed `import { auth } from "../auth/auth";` and disabled auth
+  - `backend/scheduler/list.ts` - Removed auth dependencies and user filtering
+- **Impact**: Restored backend compilation and API functionality
+- **Status**: Authentication temporarily disabled - feature flags control auth: `auth: false`
+
+### Frontend React Import Fix
+- **Issue**: Duplicate `useState` import causing frontend compilation errors
+- **File Fixed**: `frontend/components/ScheduleList.tsx` - Consolidated React imports
+- **Impact**: Restored delete functionality and component rendering
+- **Details**: Fixed from duplicate imports to single `import React, { useState } from 'react';`
+
+### Production Deployment Resolution
+- **Issue**: Vercel deployment failing due to compilation errors
+- **Solution**: Fixed all blocking compilation issues in both frontend and backend
+- **Status**: Application now deploys successfully to production
+- **Verification**: Cast members display, schedules show properly, delete operations work
+
+### Feature Flag Management
+- **Tours Feature**: Currently disabled (`MULTI_COUNTRY_TOURS: false`)
+- **Location**: `backend/config/features.ts`
+- **Status**: Hidden in production until feature completion
+- **Authentication**: Temporarily disabled for stability
