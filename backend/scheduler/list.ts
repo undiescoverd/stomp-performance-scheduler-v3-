@@ -1,18 +1,21 @@
 import { api } from "encore.dev/api";
 import { scheduleDB } from "./db";
 import { Schedule, Show, Assignment } from "./types";
+import { auth } from "../auth/auth";
 
 export interface ListSchedulesResponse {
   schedules: Schedule[];
 }
 
-// Retrieves all schedules, ordered by creation date (latest first).
+// Retrieves all schedules for the authenticated user, ordered by creation date (latest first).
 export const list = api<void, ListSchedulesResponse>(
-  { expose: true, method: "GET", path: "/schedules" },
+  { expose: true, method: "GET", path: "/schedules", auth: true },
   async () => {
+    const { userID } = auth.data()!;
     const rows = await scheduleDB.queryAll`
       SELECT id, location, week, shows_data, assignments_data, created_at, updated_at
       FROM schedules 
+      WHERE user_id = ${userID}
       ORDER BY created_at DESC
     `;
 

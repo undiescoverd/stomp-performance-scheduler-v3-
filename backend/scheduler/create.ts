@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { scheduleDB } from "./db";
 import { Schedule, Show, Assignment } from "./types";
+import { auth } from "../auth/auth";
 
 export interface CreateScheduleRequest {
   location: string;
@@ -14,8 +15,9 @@ export interface CreateScheduleResponse {
 
 // Creates a new schedule.
 export const create = api<CreateScheduleRequest, CreateScheduleResponse>(
-  { expose: true, method: "POST", path: "/schedules" },
+  { expose: true, method: "POST", path: "/schedules", auth: true },
   async (req) => {
+    const { userID } = auth.data()!;
     const id = generateId();
     const now = new Date();
     
@@ -30,8 +32,8 @@ export const create = api<CreateScheduleRequest, CreateScheduleResponse>(
     };
 
     await scheduleDB.exec`
-      INSERT INTO schedules (id, location, week, shows_data, assignments_data, created_at, updated_at)
-      VALUES (${id}, ${req.location}, ${req.week}, ${JSON.stringify(req.shows)}, ${JSON.stringify([])}, ${now}, ${now})
+      INSERT INTO schedules (id, location, week, shows_data, assignments_data, user_id, created_at, updated_at)
+      VALUES (${id}, ${req.location}, ${req.week}, ${JSON.stringify(req.shows)}, ${JSON.stringify([])}, ${userID}, ${now}, ${now})
     `;
 
     return { schedule };
