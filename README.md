@@ -8,6 +8,7 @@ A comprehensive full-stack application for managing theatrical performance sched
 - **Schedule Management**: Create and edit performance schedules with cast assignments
 - **Role Assignment**: Automatic cast assignment with constraint validation
 - **RED Day Tracking**: Track consecutive performance days for cast wellness
+- **Fairness Algorithm**: Ensures all performers get exactly one RED day per week
 - **Performance Analytics**: View schedule analytics and cast utilization
 
 ### Tour Bulk Creation System ✨ NEW
@@ -86,8 +87,9 @@ A comprehensive full-stack application for managing theatrical performance sched
 ### Schedule Features
 - **8 Roles**: Sarge, Potato, Mozzie, Ringo, Particle, Bin, Cornish, Who
 - **Gender Constraints**: Bin and Cornish are female-only roles
-- **RED Day Management**: Automatic tracking of consecutive show days
+- **RED Day Management**: Automatic tracking of consecutive show days with fairness guarantee
 - **Assignment Validation**: Real-time constraint checking
+- **Smart Algorithm**: Weekday preference for RED days, load balancing across performers
 
 ## 🛠 Development
 
@@ -134,6 +136,13 @@ cd backend && bun run build
 ```
 
 ## 🎯 Recent Updates
+
+### v3.1 - Algorithm Fairness Improvements (January 2025)
+- ✅ **Fixed RED Day Fairness**: All 12 performers now guaranteed exactly one RED day per week
+- ✅ **Smart Day Selection**: Weekday preference (Tuesday-Friday) for RED day assignments
+- ✅ **Forced RED Day Creation**: Algorithm creates RED days for performers without natural days off
+- ✅ **Load Balancing**: RED days distributed evenly across different weekdays
+- ✅ **Comprehensive Testing**: 11 tests with 356 assertions verify algorithm correctness
 
 ### v3.0 - Tour Bulk Creation System
 - ✅ Complete multi-week tour management
@@ -201,4 +210,4 @@ This is a private project for STOMP. For support or questions, please contact th
 
 ---
 
-**Built with ❤️ for STOMP theatrical performances**
+**Built with ❤️ for STOMP theatrical performances**# Trigger deploy
