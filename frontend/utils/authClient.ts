@@ -1,19 +1,17 @@
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useEffect, useState } from 'react';
 import { Client, Local, Environment } from '../client';
 import { FEATURE_FLAGS } from '@/config/features';
 
 // Hook for when authentication is enabled
 function useAuthenticatedClientWithAuth() {
-  const { getToken, isLoaded } = useAuth();
+  const { token, isAuthenticated, isLoading } = useAuth();
   const [client, setClient] = useState<Client | null>(null);
   
   useEffect(() => {
-    if (!isLoaded) return;
+    if (isLoading) return;
 
     const createAuthenticatedClient = async () => {
-      const token = await getToken();
-      
       // Use real client, not mock
       const target = import.meta.env.VITE_CLIENT_TARGET || Local;
       console.log('Environment variables:', {
@@ -34,7 +32,7 @@ function useAuthenticatedClientWithAuth() {
     };
 
     createAuthenticatedClient();
-  }, [getToken, isLoaded]);
+  }, [token, isAuthenticated, isLoading]);
 
   return client;
 }
@@ -74,9 +72,7 @@ export function useAuthenticatedClient() {
 }
 
 // For non-hook usage, create a factory function
-export async function createAuthenticatedClient(getToken: () => Promise<string | null>): Promise<Client> {
-  const token = await getToken();
-  
+export async function createAuthenticatedClient(token?: string | null): Promise<Client> {
   return new Client(
     import.meta.env.VITE_CLIENT_TARGET || Local,
     {

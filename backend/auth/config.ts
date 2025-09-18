@@ -27,10 +27,6 @@ export function loadAuthConfig(): AuthConfig {
     }
   }
 
-  // Clerk configuration (optional, for future Clerk integration)
-  const clerkSecretKey = process.env.CLERK_SECRET_KEY;
-  const clerkPublishableKey = process.env.CLERK_PUBLISHABLE_KEY;
-
   // Token expiration configuration
   const tokenExpirationHours = process.env.TOKEN_EXPIRATION_HOURS 
     ? parseInt(process.env.TOKEN_EXPIRATION_HOURS, 10)
@@ -39,8 +35,6 @@ export function loadAuthConfig(): AuthConfig {
   return {
     jwtSecret: jwtSecret || 'dev-secret-key-change-in-production',
     tokenExpirationHours,
-    clerkSecretKey,
-    clerkPublishableKey,
   };
 }
 

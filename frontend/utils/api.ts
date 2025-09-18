@@ -1,16 +1,14 @@
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function useAuthenticatedFetch() {
-  const { getToken } = useAuth();
+  const { token } = useAuth();
   
   const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
-    const token = await getToken();
-    
     return fetch(url, {
       ...options,
       headers: {
         ...options.headers,
-        'Authorization': `Bearer ${token}`,
+        ...(token && { 'Authorization': `Bearer ${token}` }),
         'Content-Type': 'application/json',
       },
     });
@@ -21,11 +19,10 @@ export function useAuthenticatedFetch() {
 
 // Helper function for authenticated API calls with error handling
 export async function makeAuthenticatedRequest<T>(
-  getToken: () => Promise<string | null>,
+  token: string | null,
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = await getToken();
   
   const response = await fetch(url, {
     ...options,

@@ -71,8 +71,6 @@ export interface AuthContext {
 export interface AuthConfig {
   jwtSecret: string;
   tokenExpirationHours: number;
-  clerkSecretKey?: string;
-  clerkPublishableKey?: string;
 }
 
 // Error types for authentication
