@@ -1,6 +1,6 @@
 import { useAuth } from '@clerk/clerk-react';
 import { useEffect, useState } from 'react';
-import { Client, Local, Environment } from './client';
+import { Client, Local, Environment } from '../client';
 
 export function useAuthenticatedClient() {
   const { getToken, isLoaded } = useAuth();
