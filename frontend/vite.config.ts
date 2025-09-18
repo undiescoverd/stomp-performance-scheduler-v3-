@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -14,8 +15,9 @@ export default defineConfig({
     tailwindcss(),
     react(),
   ],
-  mode: "development",
+  // Remove hardcoded development mode - let Vite determine based on NODE_ENV
   build: {
-    minify: false,
+    minify: true, // Enable minification for production
+    sourcemap: false, // Disable sourcemaps in production
   }
 })

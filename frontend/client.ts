@@ -244,7 +244,7 @@ export namespace scheduler {
         }
 
         /**
-         * Retrieves all schedules, ordered by creation date (latest first).
+         * Retrieves all schedules for the authenticated user, ordered by creation date (latest first).
          */
         public async list(): Promise<ResponseType<typeof api_scheduler_list_list>> {
             // Now make the actual call to the API
