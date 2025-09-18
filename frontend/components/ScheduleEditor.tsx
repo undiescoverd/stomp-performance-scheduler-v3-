@@ -37,10 +37,15 @@ export default function ScheduleEditor() {
   });
 
   // Fetch cast members and roles
-  const { data: castData } = useQuery({
+  const { data: castData, isLoading: castLoading, error: castError } = useQuery({
     queryKey: ['cast-members'],
     queryFn: () => backend.scheduler.getCastMembers()
   });
+
+  // Debug logging
+  console.log('Cast data:', castData);
+  console.log('Cast loading:', castLoading);
+  console.log('Cast error:', castError);
 
   // Create schedule mutation
   const createMutation = useMutation({

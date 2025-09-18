@@ -57,6 +57,9 @@ export function ScheduleGrid({
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Debug logging
+  console.log('ScheduleGrid received:', { castMembers, roles, shows });
+
   const visibleShows = shows.filter(show => show.status === 'show' || show.status === 'travel' || show.status === 'dayoff');
 
   const { assignmentMap, performerRedDays } = useMemo(() => {
