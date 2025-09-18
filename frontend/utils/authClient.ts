@@ -1,13 +1,63 @@
-import { Local } from './client';
 import { useAuth } from '@clerk/clerk-react';
 import { useEffect, useState } from 'react';
+
+// Mock schedule data for demo purposes
+const mockScheduleData = {
+  schedules: [
+    {
+      id: "demo-schedule-1",
+      city: "London",
+      weekNumber: 39,
+      location: "London",
+      startDate: "2024-09-22",
+      endDate: "2024-09-28",
+      shows: [
+        {
+          id: "show-1",
+          date: "2024-09-23",
+          time: "8:00 PM",
+          callTime: "6:00 PM",
+          status: "scheduled"
+        },
+        {
+          id: "show-2",
+          date: "2024-09-24",
+          time: "8:00 PM", 
+          callTime: "6:00 PM",
+          status: "scheduled"
+        },
+        {
+          id: "show-3",
+          date: "2024-09-25",
+          time: "8:00 PM",
+          callTime: "6:00 PM", 
+          status: "scheduled"
+        }
+      ],
+      castMembers: [
+        {
+          id: "cast-1",
+          name: "John Smith",
+          roles: ["Sarge", "Potato"],
+          isActive: true
+        },
+        {
+          id: "cast-2",
+          name: "Jane Doe",
+          roles: ["Mozzie", "Ringo"],
+          isActive: true
+        }
+      ]
+    }
+  ]
+};
 
 // Mock client interface to match expected structure
 const mockClient = {
   scheduler: {
-    list: () => Local.getSchedules(),
+    list: () => Promise.resolve(mockScheduleData),
     deleteSchedule: ({ id }: { id: string }) => Promise.resolve(),
-    get: ({ id }: { id: string }) => Promise.resolve(null),
+    get: ({ id }: { id: string }) => Promise.resolve(mockScheduleData.schedules[0]),
   }
 };
 
