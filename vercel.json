@@ -1,18 +1,8 @@
 {
   "version": 2,
   "functions": {
-    "api/index.js": {
+    "api/**/*.js": {
       "runtime": "nodejs18.x"
     }
-  },
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index.js"
-    },
-    {
-      "src": "/(schedules|health|company|cast-members)",
-      "dest": "/api/index.js"
-    }
-  ]
+  }
 }
