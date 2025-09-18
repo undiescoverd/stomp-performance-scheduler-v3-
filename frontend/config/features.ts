@@ -13,6 +13,13 @@ export const FEATURES = {
    * Set to true to enable tours functionality
    */
   MULTI_COUNTRY_TOURS: false,
+  
+  /**
+   * Authentication functionality
+   * Controls whether Clerk authentication is required
+   * Set to false to disable authentication temporarily
+   */
+  AUTHENTICATION_ENABLED: false,
 } as const;
 
 // Environment variable override support
@@ -24,6 +31,13 @@ export const FEATURE_FLAGS = {
    * For environment override, set VITE_ENABLE_TOURS=true in .env and update this logic
    */
   MULTI_COUNTRY_TOURS: FEATURES.MULTI_COUNTRY_TOURS,
+  
+  /**
+   * Authentication functionality
+   * Set to true to enable Clerk authentication
+   * Currently disabled to match backend auth: false setting
+   */
+  AUTHENTICATION_ENABLED: FEATURES.AUTHENTICATION_ENABLED,
 } as const;
 
 // Type definitions for feature flags

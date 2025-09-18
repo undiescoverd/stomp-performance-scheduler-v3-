@@ -27,9 +27,13 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <AuthWrapper>
+        {FEATURE_FLAGS.AUTHENTICATION_ENABLED ? (
+          <AuthWrapper>
+            <AppInner />
+          </AuthWrapper>
+        ) : (
           <AppInner />
-        </AuthWrapper>
+        )}
       </Router>
       <Toaster />
     </QueryClientProvider>
