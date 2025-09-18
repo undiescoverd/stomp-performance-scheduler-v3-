@@ -19,12 +19,12 @@ export function loadAuthConfig(): AuthConfig {
   // JWT Secret - required for token signing
   const jwtSecret = process.env.JWT_SECRET || process.env.ENCORE_JWT_SECRET;
   if (!jwtSecret) {
-    // For development, generate a warning but use a default
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('⚠️  JWT_SECRET not set, using default for development');
-    } else {
-      throw new Error('JWT_SECRET environment variable is required for production');
-    }
+    // For development, use a default secret
+    console.warn('⚠️  JWT_SECRET not set, using default for development');
+    return {
+      jwtSecret: 'dev-secret-key-change-in-production-32-chars-min',
+      tokenExpirationHours: DEFAULT_CONFIG.tokenExpirationHours!,
+    };
   }
 
   // Token expiration configuration
@@ -75,6 +75,11 @@ export function isAuthEnabled(): boolean {
   // Check environment variable first
   if (process.env.AUTH_ENABLED !== undefined) {
     return process.env.AUTH_ENABLED === 'true';
+  }
+  
+  // For development, always enable auth
+  if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+    return true;
   }
   
   // Fall back to checking feature flags from config

@@ -149,6 +149,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
               placeholder="Create a password (min 8 characters)"
               disabled={isLoading}
               minLength={8}
+              autoComplete="new-password"
             />
           </div>
 
@@ -167,6 +168,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
               placeholder="Confirm your password"
               disabled={isLoading}
               minLength={8}
+              autoComplete="new-password"
             />
           </div>
 

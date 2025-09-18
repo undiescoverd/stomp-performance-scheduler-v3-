@@ -12,6 +12,13 @@ export const FEATURES = {
    * Set to true to enable tours API endpoints
    */
   MULTI_COUNTRY_TOURS: false,
+  
+  /**
+   * Authentication functionality
+   * Controls whether authentication is enabled
+   * Set to false to disable authentication (temporary)
+   */
+  AUTHENTICATION_ENABLED: false,
 } as const;
 
 // Environment variable override support
@@ -22,6 +29,13 @@ export const FEATURE_FLAGS = {
    */
   MULTI_COUNTRY_TOURS: 
     process.env.ENABLE_TOURS === 'true' || FEATURES.MULTI_COUNTRY_TOURS,
+    
+  /**
+   * Check environment variable first, fallback to direct config
+   * Environment variable: AUTH_ENABLED=true
+   */
+  AUTHENTICATION_ENABLED:
+    process.env.AUTH_ENABLED === 'true' || FEATURES.AUTHENTICATION_ENABLED,
 } as const;
 
 // Type definitions for feature flags
