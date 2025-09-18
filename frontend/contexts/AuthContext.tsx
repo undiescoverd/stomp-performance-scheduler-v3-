@@ -82,7 +82,7 @@ const removeStoredToken = () => {
 
 // API functions - Environment-aware backend URL
 const API_BASE = import.meta.env.PROD 
-  ? 'https://stomp-performance-scheduler-hxdi.encr.app'
+  ? (import.meta.env.VITE_API_URL || 'https://stomp-performance-scheduler-hxdi.encr.app')
   : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:4000');
 
 const apiCall = async (endpoint: string, options: RequestInit = {}) => {
