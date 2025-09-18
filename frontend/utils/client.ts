@@ -1,5 +1,8 @@
 // Simple API client for the STOMP Performance Scheduler
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+// In production, use same domain for API. In development, use localhost:4000
+const API_BASE_URL = import.meta.env.PROD 
+  ? '' // Use relative URLs in production (same domain)
+  : (import.meta.env.VITE_API_URL || 'http://localhost:4000');
 
 export class Client {
   constructor(private baseURL: string = API_BASE_URL) {}
@@ -23,7 +26,7 @@ export class Client {
 
   // Schedules
   async getSchedules() {
-    return this.request('/schedules');
+    return this.request('/api/schedules');
   }
 
   // Health check
