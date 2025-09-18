@@ -211,3 +211,4 @@ This is a private project for STOMP. For support or questions, please contact th
 ---
 
 **Built with ❤️ for STOMP theatrical performances**# Trigger deploy
+# Trigger deployment for database migrations
