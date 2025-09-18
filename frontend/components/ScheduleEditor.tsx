@@ -39,7 +39,10 @@ export default function ScheduleEditor() {
   // Fetch cast members and roles
   const { data: castData, isLoading: castLoading, error: castError } = useQuery({
     queryKey: ['cast-members'],
-    queryFn: () => backend.scheduler.getCastMembers()
+    queryFn: () => {
+      console.log('Fetching cast members with backend:', backend);
+      return backend.scheduler.getCastMembers();
+    }
   });
 
   // Debug logging

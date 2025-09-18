@@ -39,7 +39,7 @@ function useAuthenticatedClientWithAuth() {
   return client;
 }
 
-// Hook for when authentication is disabled
+  // Hook for when authentication is disabled
 function useAuthenticatedClientWithoutAuth() {
   const [client, setClient] = useState<Client | null>(null);
   
@@ -58,6 +58,7 @@ function useAuthenticatedClientWithoutAuth() {
         },
       });
       
+      console.log('Created unauthenticated client:', realClient);
       setClient(realClient);
     };
 
