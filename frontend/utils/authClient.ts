@@ -14,7 +14,6 @@ export function useAuthenticatedClient() {
       
       // Use real client, not mock
       const target = import.meta.env.VITE_CLIENT_TARGET || Local;
-      console.log('Frontend using backend URL:', target);
       const realClient = new Client(target, {
         requestInit: {
           credentials: "include",
