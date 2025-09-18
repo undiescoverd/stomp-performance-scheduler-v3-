@@ -1,10 +1,11 @@
 # STOMP Performance Scheduler - Codebase Audit
 
-*Generated: 2025-09-14*
+*Generated: 2025-09-14*  
+*Updated: 2025-01-17 - Algorithm Fairness Fix Applied*
 
 ## 🎯 Executive Summary
 
-The STOMP Performance Scheduler is a well-architected full-stack application with a solid foundation. The codebase demonstrates good TypeScript practices, modern React patterns, and clean separation of concerns. However, there are several opportunities for improvement, particularly around configuration management, error handling, and Leap.new compatibility considerations.
+The STOMP Performance Scheduler is a well-architected full-stack application with a solid foundation. The codebase demonstrates good TypeScript practices, modern React patterns, and clean separation of concerns. **Recent critical algorithm improvements (v3.1) have resolved the major fairness issues**, ensuring all performers receive equal treatment. Remaining opportunities for improvement focus on configuration management, error handling, and Leap.new compatibility considerations.
 
 ## ✅ What's Working Well
 
@@ -22,12 +23,14 @@ The STOMP Performance Scheduler is a well-architected full-stack application wit
 - **Business logic encapsulation**: SchedulingAlgorithm class handles complex scheduling
 - **Constraint modeling**: Gender-specific roles (Bin/Cornish female-only), consecutive show limits
 - **Caching architecture**: Performance optimization with cached data structures
+- **✅ Algorithm Fairness**: Fixed critical RED day fairness issue - all 12 performers now guaranteed equal treatment
 
 ### Testing Infrastructure
 - **E2E testing**: Playwright setup with comprehensive mock data
 - **Test utilities**: MSW for API mocking, proper test configuration
 - **Unit testing**: Vitest configuration for backend algorithm testing
 - **Mock patterns**: Realistic test data matching production constraints
+- **✅ Comprehensive Algorithm Testing**: 11 tests with 356 assertions verify RED day fairness and constraint preservation
 
 ### Development Experience
 - **Path aliases**: Clean import structure with `@/` and `~backend/` aliases

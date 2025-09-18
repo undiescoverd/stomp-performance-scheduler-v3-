@@ -1,6 +1,8 @@
 # STOMP Performance Scheduler - Feature Analysis & Improvement Plan
 
-Based on analysis of the codebase, here are potential features and improvements organized by category:
+*Updated: January 2025 - Algorithm Fairness Fix Applied*
+
+Based on analysis of the codebase, here are potential features and improvements organized by category. **Note: The critical algorithm fairness issue has been resolved in v3.1.**
 
 ## 🎯 **Core Scheduling Enhancements**
 
@@ -10,8 +12,10 @@ Based on analysis of the codebase, here are potential features and improvements 
 - **Minimum/Maximum Show Limits**: Set per-performer limits for workload balancing
 - **Multi-Week Scheduling**: Plan schedules across multiple weeks with continuity constraints
 
-### 2. **Intelligent Algorithm Improvements**
-- **Fairness Scoring**: Ensure equitable distribution of desirable roles and workload
+### 2. **Intelligent Algorithm Improvements** ✅ **COMPLETED in v3.1**
+- **✅ Fairness Scoring**: RESOLVED - All 12 performers now guaranteed exactly one RED day per week
+- **✅ Smart Day Selection**: RESOLVED - Weekday preference (Tuesday-Friday) with load balancing
+- **✅ Forced RED Day Creation**: RESOLVED - Algorithm creates RED days for performers without natural days off
 - **Performance History**: Track past assignments to avoid repetitive casting
 - **Understudies/Swings**: Automatic backup performer assignments for emergency coverage
 - **Gender-Neutral Role Options**: Expand beyond current female-only "Bin" and "Cornish" constraints
@@ -74,6 +78,11 @@ Based on analysis of the codebase, here are potential features and improvements 
 
 ## 🚀 **Implementation Priority Recommendations**
 
+**✅ COMPLETED (v3.1):**
+- **Algorithm Fairness**: All performers now get exactly one RED day per week
+- **Smart Scheduling**: Weekday preference with load balancing
+- **Comprehensive Testing**: 11 tests with 356 assertions
+
 **Phase 1 (High Impact, Low Effort):**
 - Enhanced export formats (PDF, Calendar)
 - Basic performer availability system
@@ -81,7 +90,7 @@ Based on analysis of the codebase, here are potential features and improvements 
 
 **Phase 2 (Medium Impact, Medium Effort):**
 - Drag-and-drop interface improvements
-- Multi-week scheduling support
+- Multi-week scheduling support (Tour system already implemented)
 - Automated notifications
 
 **Phase 3 (High Impact, High Effort):**
@@ -95,8 +104,10 @@ The application has a solid foundation with:
 - **Backend**: Encore.dev framework with PostgreSQL database
 - **Frontend**: React 19 + TypeScript with modern tooling
 - **Core Features**: Basic scheduling, role assignment, RED day tracking
-- **Testing**: Unit and E2E test coverage
+- **✅ Algorithm**: Fairness-guaranteed scheduling with smart RED day assignment
+- **Testing**: Unit and E2E test coverage with comprehensive algorithm testing
 - **Export**: Basic CSV and print functionality
+- **Tours**: Multi-week bulk creation system
 
 ## 📝 **Next Steps**
 

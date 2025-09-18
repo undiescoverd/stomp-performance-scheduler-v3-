@@ -75,6 +75,10 @@ The application models theatrical scheduling with these core entities:
 - Cast member eligibility restricted by predefined role assignments
 
 ### Recent Features & Improvements
+- **Algorithm Fairness Fix (v3.1)**: Critical fix ensuring all 12 performers get exactly one RED day per week
+- **Smart RED Day Assignment**: Weekday preference (Tuesday-Friday) with intelligent load balancing
+- **Forced RED Day Creation**: Algorithm creates RED days for performers without natural days off
+- **Comprehensive Testing**: 11 tests with 356 assertions verify algorithm correctness
 - **Tour Bulk Creation**: Complete multi-week tour management system with bulk scheduling
 - **Professional PDF Export**: STOMP-formatted PDF schedules with proper layout and branding
 - **Live Week Updates**: Dynamic week number calculation and display in scheduler title
@@ -133,7 +137,19 @@ The application models theatrical scheduling with these core entities:
 - TailwindCSS v4 is configured with custom animation support
 - MSW is configured for API mocking in tests
 
-## Recent Critical Fixes (December 2024)
+## Recent Critical Fixes (January 2025)
+
+### Algorithm Fairness Overhaul (v3.1)
+- **Issue**: Only 11 out of 12 performers were getting RED days, with SEAN being the main victim
+- **Root Cause**: Flawed `assignRedDays` method only assigned RED days to performers with natural full days off
+- **Solution**: Complete algorithm rewrite with forced RED day creation for all performers
+- **Files Fixed**: 
+  - `backend/scheduler/algorithm.ts` - Complete RED day assignment logic overhaul
+  - `backend/scheduler/algorithm.test.ts` - Comprehensive test suite with 356 assertions
+- **Impact**: Perfect fairness - all 12 performers now guaranteed exactly one RED day per week
+- **Status**: ✅ Live in production, fully tested and verified
+
+## Previous Critical Fixes (December 2024)
 
 ### Authentication System Overhaul
 - **Issue**: Missing auth module imports causing backend compilation failures

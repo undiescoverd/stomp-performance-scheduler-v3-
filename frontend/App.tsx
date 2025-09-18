@@ -7,6 +7,7 @@ import ScheduleEditor from './components/ScheduleEditor';
 import CompanyManagement from './components/CompanyManagement';
 import { AppHeader } from './components/AppHeader';
 import { AuthWrapper } from './components/AuthWrapper';
+import { AuthProvider } from './contexts/AuthContext';
 import { FEATURE_FLAGS } from '@/config/features';
 
 // Conditionally import TourManager only if feature is enabled
@@ -26,15 +27,17 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
-        {FEATURE_FLAGS.AUTHENTICATION_ENABLED ? (
-          <AuthWrapper>
+      <AuthProvider>
+        <Router>
+          {FEATURE_FLAGS.AUTHENTICATION_ENABLED ? (
+            <AuthWrapper>
+              <AppInner />
+            </AuthWrapper>
+          ) : (
             <AppInner />
-          </AuthWrapper>
-        ) : (
-          <AppInner />
-        )}
-      </Router>
+          )}
+        </Router>
+      </AuthProvider>
       <Toaster />
     </QueryClientProvider>
   );

@@ -16,10 +16,10 @@ export const FEATURES = {
   
   /**
    * Authentication functionality
-   * Controls whether Clerk authentication is required
-   * Set to false to disable authentication temporarily
+   * Controls whether custom JWT authentication is required
+   * Set to true to enable authentication
    */
-  AUTHENTICATION_ENABLED: false,
+  AUTHENTICATION_ENABLED: true,
 } as const;
 
 // Environment variable override support
@@ -34,8 +34,8 @@ export const FEATURE_FLAGS = {
   
   /**
    * Authentication functionality
-   * Set to true to enable Clerk authentication
-   * Currently disabled to match backend auth: false setting
+   * Set to true to enable custom JWT authentication
+   * Now enabled with custom auth system
    */
   AUTHENTICATION_ENABLED: FEATURES.AUTHENTICATION_ENABLED,
 } as const;

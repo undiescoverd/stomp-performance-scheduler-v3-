@@ -1,5 +1,14 @@
 # Deployment Guide
 
+## 🚀 Current Deployment Status (January 2025)
+
+The application is successfully deployed and operational with custom JWT authentication:
+- ✅ **Backend**: Running on Encore Cloud Platform at `https://stomp-performance-scheduler-hxdi.encr.app`
+- ✅ **Frontend**: Deployed on Vercel with automatic GitHub integration  
+- ✅ **Authentication**: Custom JWT authentication system (replaced Clerk)
+- ✅ **Algorithm**: Latest fairness improvements are live in production
+- ✅ **Auto-Deploy**: Pushing to GitHub automatically triggers Vercel deployment
+
 ## Quick Deploy to Vercel
 
 ### Step 1: Deploy Frontend to Vercel
@@ -13,14 +22,16 @@
    - **Framework**: Vite (auto-detected)
    - **Build Command**: `bun run build`
    - **Output Directory**: `dist`
-6. **Add Environment Variables:**
-   - `VITE_CLERK_PUBLISHABLE_KEY` = Your Clerk publishable key
-   - `VITE_CLIENT_TARGET` = `https://stomp-performance-scheduler-hxdi.encr.app` (production backend URL)
+6. **Environment Variables (Optional):**
+   - `VITE_API_URL` = Custom backend URL if needed (defaults to production backend)
 7. **Click "Deploy"**
 
-### Step 2: Update API URL for Production
+### Step 2: Production Configuration
 
-After deployment, you'll need to update the frontend to use the production backend URL instead of localhost.
+The application is already configured for production deployment:
+- **Backend URL**: `https://stomp-performance-scheduler-hxdi.encr.app` (Encore Cloud)
+- **Frontend**: Automatically connects to production backend
+- **Environment Variables**: Configured in Vercel dashboard
 
 ## Local Development
 
@@ -36,25 +47,31 @@ bun run dev
 
 ## Environment Variables
 
-### Frontend (.env.local)
+### Backend (Encore Cloud)
+Set these environment variables in your Encore dashboard:
 ```
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
+AUTH_ENABLED=true
+JWT_SECRET=your_secure_64_character_production_secret_here
+NODE_ENV=production
 ```
 
-### Production (Vercel)
-Add these in Vercel dashboard under Project Settings > Environment Variables:
-- `VITE_CLERK_PUBLISHABLE_KEY` = Your production Clerk key
+### Frontend (Optional)
+No environment variables required by default. Optionally set:
+```
+VITE_API_URL=custom_backend_url_if_needed
+```
 
-## Clerk Authentication Setup
+## JWT Authentication System
 
-1. **Go to [Clerk Dashboard](https://dashboard.clerk.com)**
-2. **Configure your application:**
-   - Add your Vercel domain to allowed origins
-   - Set up user restrictions if needed
-   - Configure sign-in methods
+The application uses a custom JWT authentication system:
+- **User Registration**: Email/password with bcrypt hashing
+- **Session Management**: JWT tokens with configurable expiration
+- **Security**: Secure token validation with Encore native auth handler
+- **Database**: User data stored in your own PostgreSQL database
 
 ## Troubleshooting
 
 - **Build fails**: Make sure all dependencies are installed with `bun install`
-- **Clerk errors**: Verify your publishable key is correct
+- **Authentication errors**: Check that JWT_SECRET is set in Encore environment
 - **API errors**: Ensure backend is running and accessible
+- **CORS issues**: Backend automatically handles CORS for auth endpoints

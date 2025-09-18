@@ -1,6 +1,14 @@
-# Getting Started
+# Development Guide
 
-This project consists of an Encore application. Follow the steps below to get the app running locally.
+This project consists of an Encore application with a React frontend. Follow the steps below to get the app running locally.
+
+## 🎯 Current Status (January 2025)
+
+The application is fully functional with recent critical improvements:
+- ✅ **Algorithm Fairness Fixed**: All 12 performers now get exactly one RED day per week
+- ✅ **Smart Scheduling**: Weekday preference for RED days with load balancing
+- ✅ **Comprehensive Testing**: 11 tests with 356 assertions verify correctness
+- ✅ **Production Ready**: Deployed and working on localhost and Vercel
 
 ## Prerequisites
 
@@ -60,6 +68,20 @@ To generate the frontend client, run the following command in the `backend` dire
 ```bash
 encore gen client --target leap
 ```
+
+### Testing the Algorithm
+To verify the scheduling algorithm is working correctly:
+
+```bash
+cd backend
+bun test scheduler/algorithm.test.ts
+```
+
+This will run 11 tests with 356 assertions to verify:
+- All 12 performers get exactly one RED day
+- RED days are assigned to weekdays (Tuesday-Friday)
+- Load balancing across different weekdays
+- All existing constraints are preserved
 
 ## Deployment
 

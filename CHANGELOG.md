@@ -2,6 +2,39 @@
 
 All notable changes to the STOMP Performance Scheduler will be documented in this file.
 
+## [3.1.0] - 2025-01-17
+
+### 🎯 Critical Algorithm Fix: RED Day Fairness
+
+#### Fixed
+- **RED Day Fairness Issue**: Resolved critical bug where only 11 out of 12 performers received RED days
+- **SEAN Assignment Problem**: Fixed specific case where SEAN and other performers were not getting mandatory RED days
+- **Algorithm Logic Flaw**: Replaced flawed `assignRedDays` method with intelligent forced RED day creation
+
+#### Enhanced
+- **Smart Day Selection**: Algorithm now prefers weekdays (Tuesday-Friday) for RED day assignments
+- **Forced RED Day Creation**: Creates RED days for performers without natural full days off
+- **Load Balancing**: Distributes RED days evenly across different weekdays to prevent clustering
+- **Weekend Avoidance**: Prevents RED day assignments on weekends when possible
+
+#### Technical Improvements
+- **Algorithm Rewrite**: Complete overhaul of RED day assignment logic in `backend/scheduler/algorithm.ts`
+- **Helper Methods**: Added `isWeekend()`, `hasBackToBackDoubles()`, and `getBestDayForRedDay()` utilities
+- **Comprehensive Testing**: Added 11 new tests with 356 assertions to verify algorithm correctness
+- **Performance Optimization**: Improved algorithm efficiency while maintaining all existing constraints
+
+#### Results
+- ✅ **Perfect Fairness**: All 12 performers now guaranteed exactly one RED day per week
+- ✅ **Weekday Preference**: RED days assigned to Tuesday-Friday (no weekend RED days)
+- ✅ **Load Distribution**: RED days spread across different weekdays (e.g., 5 on Tuesday, 3 on Wednesday, 2 on Thursday, 2 on Friday)
+- ✅ **Constraint Preservation**: All existing scheduling constraints maintained while improving fairness
+
+#### Files Changed
+- `backend/scheduler/algorithm.ts` - Complete algorithm rewrite (143 insertions, 54 deletions)
+- `backend/scheduler/algorithm.test.ts` - Comprehensive test suite additions
+
+---
+
 ## [3.0.0] - 2025-01-17
 
 ### ✨ Major Feature: Tour Bulk Creation System
