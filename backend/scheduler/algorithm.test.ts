@@ -138,63 +138,94 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     });
   });
 
-  describe('CRITICAL BUG FIX: Weekend 4-Show Rule Prevention', () => {
-    it('should NEVER allow Friday-Saturday-Sunday 4-show pattern', async () => {
+  describe('Back-to-Back Double Days Prevention (governs weekend fatigue)', () => {
+    // Helper: does any performer perform 4 shows across 2 adjacent dates?
+    const hasBackToBackDoubles = (assignments: { showId: string; role: string; performer: string }[], shows: Show[]): boolean => {
+      const showById = new Map(shows.map(s => [s.id, s]));
+      const byPerformer: Record<string, Record<string, number>> = {};
+      for (const a of assignments) {
+        if (a.role === 'OFF') continue;
+        const show = showById.get(a.showId);
+        if (!show) continue;
+        byPerformer[a.performer] ??= {};
+        byPerformer[a.performer][show.date] = (byPerformer[a.performer][show.date] || 0) + 1;
+      }
+      for (const dates of Object.values(byPerformer)) {
+        const sorted = Object.keys(dates).sort();
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const d1 = new Date(`${sorted[i]}T12:00:00Z`).getTime();
+          const d2 = new Date(`${sorted[i + 1]}T12:00:00Z`).getTime();
+          const dayDiff = Math.round((d2 - d1) / 86400000);
+          if (dayDiff === 1 && dates[sorted[i]] === 2 && dates[sorted[i + 1]] === 2) return true;
+        }
+      }
+      return false;
+    };
+
+    it('validation flags Sat double + Sun double as a back-to-back violation', () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
-      
-      for (let attempt = 0; attempt < 10; attempt++) {
+      const assignments = [
+        { showId: 'sat_mat', role: 'Sarge' as Role, performer: 'PHIL' },
+        { showId: 'sat_eve', role: 'Sarge' as Role, performer: 'PHIL' },
+        { showId: 'sun_mat', role: 'Sarge' as Role, performer: 'PHIL' },
+        { showId: 'sun_eve', role: 'Sarge' as Role, performer: 'PHIL' }
+      ];
+      const result = algorithm.validateSchedule(assignments);
+      const b2bErrors = result.errors.filter(e => e.includes('back-to-back double days'));
+      expect(b2bErrors.length).toBeGreaterThan(0);
+    });
+
+    it('validation flags MID-WEEK back-to-back doubles too (rule is date-agnostic)', () => {
+      const midWeekShows: Show[] = [
+        { id: 'wed_mat', date: '2024-01-03', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'wed_eve', date: '2024-01-03', time: '21:00', callTime: '18:00', status: 'show' },
+        { id: 'thu_mat', date: '2024-01-04', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'thu_eve', date: '2024-01-04', time: '21:00', callTime: '18:00', status: 'show' }
+      ];
+      const algorithm = new SchedulingAlgorithm(midWeekShows, defaultCastMembers);
+      const assignments = midWeekShows.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL' }));
+      const result = algorithm.validateSchedule(assignments);
+      expect(result.errors.filter(e => e.includes('back-to-back double days')).length).toBeGreaterThan(0);
+    });
+
+    it('generation never produces back-to-back doubles on a standard week', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      for (let attempt = 0; attempt < 20; attempt++) {
         const result = await algorithm.autoGenerate();
-        
         if (result.success) {
-          const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
-          
-          for (const member of defaultCastMembers) {
-            const memberAssignments = stageAssignments.filter(a => a.performer === member.name);
-            
-            // Group by date
-            const showsByDate: Record<string, number> = {};
-            memberAssignments.forEach(assignment => {
-              const show = weekShows.find(s => s.id === assignment.showId)!;
-              showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
-            });
-            
-            // Check Friday-Saturday-Sunday pattern (2024-01-05 to 2024-01-07)
-            const fridayShows = showsByDate["2024-01-05"] || 0;
-            const saturdayShows = showsByDate["2024-01-06"] || 0;
-            const sundayShows = showsByDate["2024-01-07"] || 0;
-            const weekendTotal = fridayShows + saturdayShows + sundayShows;
-            
-            // CRITICAL: Must never exceed 4 shows over Friday-Sunday (mathematically, exactly 1 person will have 4 shows)
-            expect(weekendTotal).toBeLessThanOrEqual(4, 
-              `${member.name} has ${weekendTotal} shows over Fri-Sun (${fridayShows} Fri, ${saturdayShows} Sat, ${sundayShows} Sun) - WEEKEND RULE VIOLATION!`
-            );
-          }
+          expect(hasBackToBackDoubles(result.assignments, weekShows)).toBe(false);
         }
       }
     });
 
-    it('should prevent weekend rule violations during assignment', () => {
-      const weekendShows = [
-        { id: "fri", date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" as const },
-        { id: "sat_mat", date: "2024-01-06", time: "16:00", callTime: "14:00", status: "show" as const },
-        { id: "sat_eve", date: "2024-01-06", time: "21:00", callTime: "18:00", status: "show" as const },
-        { id: "sun_mat", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" as const },
-        { id: "sun_eve", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" as const }
+    it('allows 5 Fri-Sun shows when the double days are NOT adjacent (Fri-Sun cap is gone)', () => {
+      // Fri double + Sat single + Sun double = 5 Fri-Sun shows, but Fri and Sun
+      // doubles are separated by Sat, so there is no back-to-back pattern. The
+      // old Fri-Sun <=4 cap wrongly rejected this; it is now legal.
+      const splitShows: Show[] = [
+        { id: 'fri_mat', date: '2024-01-05', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'fri_eve', date: '2024-01-05', time: '21:00', callTime: '18:00', status: 'show' },
+        { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'sun_mat', date: '2024-01-07', time: '16:00', callTime: '14:30', status: 'show' },
+        { id: 'sun_eve', date: '2024-01-07', time: '19:00', callTime: '18:00', status: 'show' }
       ];
-      
-      const algorithm = new SchedulingAlgorithm(weekendShows, defaultCastMembers);
-      
-      // Manually assign performer to first 4 shows
+      const algorithm = new SchedulingAlgorithm(splitShows, defaultCastMembers);
+      const assignments = splitShows.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL' }));
+
+      const result = algorithm.validateSchedule(assignments);
+      expect(result.errors.filter(e => e.includes('back-to-back double days'))).toEqual([]);
+      expect(result.errors.filter(e => e.includes('over a weekend'))).toEqual([]);
+
+      // And during generation, PHIL playing 4 of these 5 shows is still eligible
+      // for the 5th (no weekend cap blocks it).
       (algorithm as any).assignments = new Map([
-        ["fri", { "Sarge": "PHIL" }],
-        ["sat_mat", { "Sarge": "PHIL" }], 
-        ["sat_eve", { "Sarge": "PHIL" }],
-        ["sun_mat", { "Sarge": "PHIL" }]
+        ['fri_mat', { Sarge: 'PHIL' }],
+        ['fri_eve', { Sarge: 'PHIL' }],
+        ['sat_mat', { Sarge: 'PHIL' }],
+        ['sun_mat', { Sarge: 'PHIL' }]
       ]);
-      
-      // Should prevent assignment to 5th weekend show (would create 5-show weekend)
-      const wouldViolate = (algorithm as any).wouldViolateWeekendRule("PHIL", "sun_eve");
-      expect(wouldViolate).toBe(true, "Algorithm should detect weekend rule violation");
+      const wouldViolate = (algorithm as any).wouldViolateBackToBackDoubleDays('PHIL', 'sun_eve');
+      expect(wouldViolate).toBe(false);
     });
   });
 

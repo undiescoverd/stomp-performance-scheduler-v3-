@@ -559,50 +559,6 @@ export class SchedulingAlgorithm {
     return false;
   }
 
-  // FIXED: Check weekend 4-show rule (Friday-Sunday pattern) - keep existing logic
-  private wouldViolateWeekendRule(performer: string, showId: string): boolean {
-    const allShows = this.getSortedActiveShows();
-    const targetShow = allShows.find(s => s.id === showId);
-    if (!targetShow) return false;
-
-    const performerShows: Show[] = [targetShow];
-    for (const [currentShowId, showAssignment] of this.assignments) {
-        if (Object.values(showAssignment).includes(performer)) {
-            const show = allShows.find(s => s.id === currentShowId);
-            if (show && show.id !== showId) {
-                performerShows.push(show);
-            }
-        }
-    }
-
-    const showsByWeekend: Record<string, Show[]> = {};
-
-    for (const show of performerShows) {
-        const showDate = new Date(show.date + 'T12:00:00Z');
-        const dayOfWeek = showDate.getUTCDay(); // Sunday = 0, ..., Saturday = 6
-
-        if (dayOfWeek >= 5 || dayOfWeek === 0) { // Friday, Saturday, or Sunday
-            const mondayDate = new Date(showDate);
-            const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-            mondayDate.setUTCDate(mondayDate.getUTCDate() + offset);
-            const weekKey = mondayDate.toISOString().split('T')[0];
-
-            if (!showsByWeekend[weekKey]) {
-                showsByWeekend[weekKey] = [];
-            }
-            showsByWeekend[weekKey].push(show);
-        }
-    }
-
-    for (const weekKey in showsByWeekend) {
-        if (showsByWeekend[weekKey].length > 4) {
-            return true;
-        }
-    }
-
-    return false;
-  }
-
   // Check if performer has exceeded weekly show limit
   private hasExceededWeeklyLimit(performer: string): boolean {
     const performerShows = new Set<string>();
@@ -689,12 +645,11 @@ export class SchedulingAlgorithm {
           const validation = this.validateSchedule(assignments);
           
           // Check for critical errors (exactly 8 on stage, correct number off)
-          const hasCriticalErrors = validation.errors.some(error => 
-            error.includes("exactly 8") || error.includes("needs exactly") || 
+          const hasCriticalErrors = validation.errors.some(error =>
+            error.includes("exactly 8") || error.includes("needs exactly") ||
             error.includes("multiple roles") || error.includes("not eligible") ||
             error.includes("exceeds maximum of 6 consecutive") ||
-            error.includes("back-to-back double days") ||
-            error.includes("shows over a weekend") || error.includes("exceeds maximum of 4")
+            error.includes("back-to-back double days")
           );
           
           if (!hasCriticalErrors) {
@@ -832,23 +787,19 @@ export class SchedulingAlgorithm {
         if (!this.canAssignPerformerToShow(member.name, showId)) {
           return false;
         }
-        
-        // CHECK 3: Won't create weekend 4-show violation
-        if (this.wouldViolateWeekendRule(member.name, showId)) {
-          return false;
-        }
-        
-        // CHECK 4: Won't create back-to-back double days violation
+
+        // CHECK 3: Won't create back-to-back double days violation
+        // (This governs weekend fatigue; there is no standalone Fri-Sun cap.)
         if (this.wouldViolateBackToBackDoubleDays(member.name, showId)) {
           return false;
         }
-        
-        // CHECK 5: Haven't exceeded weekly limit (max 6 shows)
+
+        // CHECK 4: Haven't exceeded weekly limit (max 6 shows)
         if (this.hasExceededWeeklyLimit(member.name)) {
           return false;
         }
-        
-        // CHECK 6: Gender constraints for female-only roles
+
+        // CHECK 5: Gender constraints for female-only roles
         if (!this.isPerformerEligibleForRole(member.name, role)) {
           return false;
         }
@@ -1433,33 +1384,8 @@ export class SchedulingAlgorithm {
       }
     }
 
-    // Weekend Rule Validation
-    for (const member of this.castMembers) {
-        const performerShows = assignments
-            .filter(a => a.performer === member.name && a.role !== 'OFF')
-            .map(a => activeShows.find(s => s.id === a.showId))
-            .filter((s): s is Show => s !== undefined);
-
-        const showsByWeekend: Record<string, Show[]> = {};
-        for (const show of performerShows) {
-            const showDate = new Date(show.date + 'T12:00:00Z');
-            const dayOfWeek = showDate.getUTCDay();
-            if (dayOfWeek >= 5 || dayOfWeek === 0) { // Fri, Sat, Sun
-                const mondayDate = new Date(showDate);
-                const offset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-                mondayDate.setUTCDate(mondayDate.getUTCDate() + offset);
-                const weekKey = mondayDate.toISOString().split('T')[0];
-                if (!showsByWeekend[weekKey]) showsByWeekend[weekKey] = [];
-                showsByWeekend[weekKey].push(show);
-            }
-        }
-
-        for (const weekKey in showsByWeekend) {
-            if (showsByWeekend[weekKey].length > 4) {
-                errors.push(`${member.name} has ${showsByWeekend[weekKey].length} shows over a weekend (Fri-Sun) - exceeds maximum of 4.`);
-            }
-        }
-    }
+    // (Weekend Fri-Sun 4-show cap removed: weekend fatigue is governed solely
+    // by the back-to-back-double-days rule validated below.)
 
     // RED Day Validation
     const performerRedDays: Record<string, string[]> = {};
