@@ -371,6 +371,50 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     });
   });
 
+  describe('Manual injury override (Phase 4)', () => {
+    const doubleWeekend: Show[] = [
+      { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+      { id: 'sat_eve', date: '2024-01-06', time: '21:00', callTime: '18:00', status: 'show' },
+      { id: 'sun_mat', date: '2024-01-07', time: '16:00', callTime: '14:30', status: 'show' },
+      { id: 'sun_eve', date: '2024-01-07', time: '19:00', callTime: '18:00', status: 'show' }
+    ];
+    const philAll = (isOverride?: boolean) => doubleWeekend.map(s => ({
+      showId: s.id, role: 'Sarge' as Role, performer: 'PHIL', ...(isOverride ? { isOverride: true } : {})
+    }));
+
+    it('downgrades a back-to-back-doubles violation to a warning when overridden', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule(philAll(true));
+      expect(result.errors.filter(e => e.includes('back-to-back double days'))).toEqual([]);
+      expect(result.warnings.some(w => w.includes('manual override'))).toBe(true);
+    });
+
+    it('still reports a back-to-back-doubles ERROR without the override flag (regression)', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule(philAll(false));
+      expect(result.errors.some(e => e.includes('back-to-back double days'))).toBe(true);
+    });
+
+    it('downgrades a weekly >6 violation to a warning when overridden', () => {
+      const singleWeek: Show[] = ['2024-01-02','2024-01-03','2024-01-04','2024-01-05','2024-01-06','2024-01-07','2024-01-08']
+        .map((date, i) => ({ id: `s${i}`, date, time: '19:00', callTime: '18:00', status: 'show' as const }));
+      const algorithm = new SchedulingAlgorithm(singleWeek, defaultCastMembers);
+      const seven = singleWeek.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL', isOverride: true }));
+      const result = algorithm.validateSchedule(seven);
+      expect(result.errors.filter(e => e.includes('exceeds maximum of 6 shows'))).toEqual([]);
+      expect(result.warnings.some(w => w.includes('shows this week') && w.includes('manual override'))).toBe(true);
+    });
+
+    it('override does NOT bypass casting/eligibility errors', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      // PHIL (Sarge-only) flagged as override on the female-only Bin role — the
+      // override must not suppress the eligibility error.
+      const bad = [{ showId: 'sat_mat', role: 'Bin' as Role, performer: 'PHIL', isOverride: true }];
+      const result = algorithm.validateSchedule(bad);
+      expect(result.errors.some(e => e.includes('not in eligible roles'))).toBe(true);
+    });
+  });
+
   describe('Weekly Limit Enforcement', () => {
     it('should never assign more than 6 shows per performer per week', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);

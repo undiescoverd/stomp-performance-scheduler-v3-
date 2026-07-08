@@ -20,6 +20,11 @@ export interface Assignment {
   role: Role | "OFF";
   performer: string;
   isRedDay?: boolean;
+  // RD-sanctioned exception (injury/sickness cover). When set, a back-to-back
+  // double-days or weekly >6 violation involving this assignment is reported as
+  // a warning instead of an error. Never softens casting/eligibility/gender/
+  // >6-consecutive/RED-day errors.
+  isOverride?: boolean;
 }
 
 export interface Schedule {

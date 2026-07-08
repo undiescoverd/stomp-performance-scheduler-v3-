@@ -1501,33 +1501,55 @@ export class SchedulingAlgorithm {
       }
     }
 
-    // NEW: Validate back-to-back double days rule
-    for (const member of this.castMembers) {
-      const performerShows = assignments
-        .filter(a => a.performer === member.name && a.role !== 'OFF')
-        .map(a => activeShows.find(s => s.id === a.showId))
-        .filter((s): s is Show => s !== undefined);
+    // Fatigue rules (back-to-back double days, weekly cap). Both are
+    // OVERRIDABLE: when the RD flags the involved assignments as an
+    // injury/sickness override (isOverride), the violation is reported as a
+    // warning instead of an error. Casting/eligibility/gender/>6-consecutive/
+    // RED-day errors are never softened.
+    const stageByPerformer = new Map<string, Assignment[]>();
+    for (const a of assignments) {
+      if (a.role === 'OFF') continue;
+      const list = stageByPerformer.get(a.performer) ?? [];
+      list.push(a);
+      stageByPerformer.set(a.performer, list);
+    }
+    const activeShowById = new Map(activeShows.map(s => [s.id, s]));
 
-      const showsByDate: Record<string, Show[]> = {};
-      performerShows.forEach(show => {
-        if (!showsByDate[show.date]) showsByDate[show.date] = [];
-        showsByDate[show.date].push(show);
-      });
+    // Validate back-to-back double days rule (§0 rule 3).
+    for (const member of this.castMembers) {
+      const memberStage = stageByPerformer.get(member.name) ?? [];
+      const showsByDate: Record<string, Assignment[]> = {};
+      for (const a of memberStage) {
+        const show = activeShowById.get(a.showId);
+        if (!show) continue;
+        (showsByDate[show.date] ??= []).push(a);
+      }
 
       const dates = Object.keys(showsByDate).sort();
       for (let i = 0; i < dates.length - 1; i++) {
-        if (showsByDate[dates[i]].length === 2 && showsByDate[dates[i + 1]].length === 2) {
-          const d1 = new Date(dates[i]);
-          const d2 = new Date(dates[i + 1]);
-          if ((d2.getTime() - d1.getTime()) === 86400000) { // Consecutive days
-            errors.push(`${member.name} has 4 shows across 2 consecutive days (${dates[i]} and ${dates[i + 1]}) - violates back-to-back double days rule`);
+        const d1 = dates[i], d2 = dates[i + 1];
+        if (showsByDate[d1].length === 2 && showsByDate[d2].length === 2 && areDatesConsecutive(d1, d2)) {
+          const overridden = [...showsByDate[d1], ...showsByDate[d2]].some(a => a.isOverride);
+          if (overridden) {
+            warnings.push(`⚠ ${member.name}: 4 shows across ${d1}/${d2} — manual override (injury cover)`);
+          } else {
+            errors.push(`${member.name} has 4 shows across 2 consecutive days (${d1} and ${d2}) - violates back-to-back double days rule`);
           }
         }
       }
     }
 
-    // (Weekend Fri-Sun 4-show cap removed: weekend fatigue is governed solely
-    // by the back-to-back-double-days rule validated below.)
+    // Validate weekly cap (§0 rule 5): max 6 shows per performer.
+    for (const member of this.castMembers) {
+      const memberStage = stageByPerformer.get(member.name) ?? [];
+      if (memberStage.length > 6) {
+        if (memberStage.some(a => a.isOverride)) {
+          warnings.push(`⚠ ${member.name}: ${memberStage.length} shows this week — manual override (injury cover)`);
+        } else {
+          errors.push(`${member.name} has ${memberStage.length} shows this week - exceeds maximum of 6 shows per week`);
+        }
+      }
+    }
 
     // RED Day Validation
     const performerRedDays: Record<string, string[]> = {};
