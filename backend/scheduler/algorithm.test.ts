@@ -456,6 +456,41 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     });
   });
 
+  describe('Data-model & consistency hardening (Phase 6)', () => {
+    it('isWeekend is timezone-safe (Saturday is Saturday everywhere)', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers) as any;
+      // 2026-07-11 is a Saturday; 2026-07-10 a Friday. Old local-time getDay()
+      // would shift these by a day in negative-offset zones.
+      expect(algorithm.isWeekend('2026-07-11')).toBe(true);
+      expect(algorithm.isWeekend('2026-07-12')).toBe(true);  // Sunday
+      expect(algorithm.isWeekend('2026-07-10')).toBe(false); // Friday
+    });
+
+    it('gender comes from the explicit field, with a role-based fallback for legacy records', () => {
+      // Cast WITHOUT a gender field -> female inferred from Bin/Cornish eligibility.
+      const legacy = new SchedulingAlgorithm(weekShows, defaultCastMembers) as any;
+      expect(legacy.isFemalePerformer('MOLLY')).toBe(true);
+      expect(legacy.isFemalePerformer('PHIL')).toBe(false);
+
+      // Cast WITH an explicit gender field -> field wins.
+      const gendered = new SchedulingAlgorithm(weekShows, [
+        { name: 'ALEX', eligibleRoles: ['Sarge'], gender: 'female' },
+        { name: 'PHIL', eligibleRoles: ['Sarge'], gender: 'male' }
+      ]) as any;
+      expect(gendered.isFemalePerformer('ALEX')).toBe(true);
+      expect(gendered.isFemalePerformer('PHIL')).toBe(false);
+    });
+
+    it('a male performer is rejected from a female-only role via the gender field', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, [
+        ...defaultCastMembers,
+        { name: 'MALEBIN', eligibleRoles: ['Bin'], gender: 'male' }
+      ]) as any;
+      // Even though MALEBIN lists Bin as eligible, the gender guard rejects it.
+      expect(algorithm.isPerformerEligibleForRole('MALEBIN', 'Bin')).toBe(false);
+    });
+  });
+
   describe('Weekly Limit Enforcement', () => {
     it('should never assign more than 6 shows per performer per week', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);

@@ -17,10 +17,11 @@ export const getCastMembers = api<void, GetCastMembersResponse>(
       // Get active company members
       const companyData = await getCompany();
       
-      // Convert company members to legacy CastMember format
+      // Convert company members to CastMember format (carry gender through)
       const castMembers: CastMember[] = companyData.currentCompany.map(member => ({
         name: member.name,
-        eligibleRoles: member.eligibleRoles
+        eligibleRoles: member.eligibleRoles,
+        gender: member.gender
       }));
       
       return {

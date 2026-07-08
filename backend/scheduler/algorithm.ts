@@ -73,6 +73,10 @@ export class SchedulingAlgorithm {
   // whose forced RED day could not be created without breaking casting).
   private lastRedDayWarnings: string[] = [];
 
+  // How many shows in the current generation attempt fell back from fair
+  // OFF-selection to the random old logic (day-off fairness may be reduced).
+  private fairnessFallbackCount = 0;
+
   // Cached data structures for performance
   private _sortedActiveShows: Show[] | null = null;
   private _showIndexMap: Map<string, number> | null = null;
@@ -567,18 +571,13 @@ export class SchedulingAlgorithm {
       showsByDate[show.date].push(show);
     });
 
-    // Check for back-to-back double days
+    // Check for back-to-back double days (adjacent calendar dates, dates-only)
     const dates = Object.keys(showsByDate).sort();
     for (let i = 0; i < dates.length - 1; i++) {
       const currentDate = dates[i];
       const nextDate = dates[i + 1];
-      
-      // Check if consecutive days
-      const d1 = new Date(currentDate);
-      const d2 = new Date(nextDate);
-      const dayDiff = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
-      
-      if (dayDiff === 1) {
+
+      if (areDatesConsecutive(currentDate, nextDate) && currentDate !== nextDate) {
         // Check if both days have 2 shows (double days)
         if (showsByDate[currentDate].length === 2 && showsByDate[nextDate].length === 2) {
           return true; // Would create back-to-back double days
@@ -625,22 +624,29 @@ export class SchedulingAlgorithm {
     return performerShows.size;
   }
 
-  // NEW: Check if performer is eligible for role (including gender constraints)
+  // Whether a performer is female. Prefers the explicit CastMember.gender field;
+  // falls back to eligibility for a female-only role (Bin/Cornish are female-only
+  // by definition) for legacy records that predate the gender field.
+  private isFemalePerformer(performer: string): boolean {
+    const castMember = this.castMembers.find(m => m.name === performer);
+    if (!castMember) return false;
+    if (castMember.gender) return castMember.gender === "female";
+    return castMember.eligibleRoles.some(r => FEMALE_ONLY_ROLES.includes(r));
+  }
+
+  // Check if performer is eligible for role (including gender constraints)
   private isPerformerEligibleForRole(performer: string, role: Role): boolean {
     const castMember = this.castMembers.find(m => m.name === performer);
     if (!castMember) return false;
-    
+
     // Check if performer can do this role
     if (!castMember.eligibleRoles.includes(role)) return false;
-    
-    // Check gender constraints for female-only roles
-    if (FEMALE_ONLY_ROLES.includes(role)) {
-      // For now, we'll use the existing cast member names to determine gender
-      // In a real implementation, you'd have gender in the CastMember interface
-      const femaleNames = ["MOLLY", "JASMINE", "SERENA"];
-      if (!femaleNames.includes(performer)) return false;
+
+    // Female-only roles require a female performer.
+    if (FEMALE_ONLY_ROLES.includes(role) && !this.isFemalePerformer(performer)) {
+      return false;
     }
-    
+
     return true;
   }
 
@@ -697,11 +703,14 @@ export class SchedulingAlgorithm {
 
             // Add fairness validation
             const { warnings, performerDayOffCounts } = this.validateDayOffFairness(finalAssignments);
+            const fallbackWarnings = this.fairnessFallbackCount > 0
+              ? [`Fair OFF-selection fell back to random for ${this.fairnessFallbackCount} show(s) — day-off fairness may be reduced`]
+              : [];
 
             return {
               success: true,
               assignments: finalAssignments,
-              warnings: [...this.lastRedDayWarnings, ...warnings],
+              warnings: [...this.lastRedDayWarnings, ...fallbackWarnings, ...warnings],
               dayOffStats: performerDayOffCounts,
               generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
               generatedAt: new Date().toISOString()
@@ -749,7 +758,8 @@ export class SchedulingAlgorithm {
 
   private generateScheduleAttempt(): boolean {
     const sortedShows = this.getSortedActiveShows();
-    
+    this.fairnessFallbackCount = 0; // reset per attempt
+
     // Randomize order of shows and roles to avoid getting stuck in patterns
     const shuffledShows = this.shuffle(sortedShows);
     
@@ -794,8 +804,8 @@ export class SchedulingAlgorithm {
       
       // Validate we got exactly 4
       if (offMembers.length !== 4) {
-        // Fallback to old logic if new logic fails
         // Fallback to old logic when fair selection provides insufficient candidates
+        this.fairnessFallbackCount++;
         const oldOffMembers = this.selectOffMembersOld(showId);
         offMembers.length = 0;
         offMembers.push(...oldOffMembers);
@@ -808,6 +818,7 @@ export class SchedulingAlgorithm {
     } catch (error) {
       // If anything fails, use old logic
       console.error('Error in fair OFF selection, using fallback:', error);
+      this.fairnessFallbackCount++;
       const offMembers = this.selectOffMembersOld(showId);
       this.offAssignments.get(showId)!.length = 0;
       this.offAssignments.get(showId)!.push(...offMembers);
@@ -1232,7 +1243,8 @@ export class SchedulingAlgorithm {
 
   // Helper method to determine if a date is a weekend
   private isWeekend(date: string): boolean {
-    const dayOfWeek = new Date(date).getDay();
+    // Noon-UTC anchor + getUTCDay so the weekday is correct in every timezone.
+    const dayOfWeek = new Date(date + "T12:00:00Z").getUTCDay();
     return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
   }
 
@@ -1498,12 +1510,8 @@ export class SchedulingAlgorithm {
           addError("ROLE_INELIGIBLE", `Show ${showDate}: Unknown performer "${assignment.performer}" assigned to ${assignment.role}`, { performer: assignment.performer, showId: assignment.showId });
         } else if (!castMember.eligibleRoles.includes(assignment.role as Role)) {
           addError("ROLE_INELIGIBLE", `Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - not in eligible roles`, { performer: assignment.performer, showId: assignment.showId });
-        } else if (FEMALE_ONLY_ROLES.includes(assignment.role as Role)) {
-          // Check gender constraint for female-only roles
-          const femaleNames = ["MOLLY", "JASMINE", "SERENA"];
-          if (!femaleNames.includes(assignment.performer)) {
-            addError("GENDER_VIOLATION", `Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - role requires female performer`, { performer: assignment.performer, showId: assignment.showId });
-          }
+        } else if (FEMALE_ONLY_ROLES.includes(assignment.role as Role) && !this.isFemalePerformer(assignment.performer)) {
+          addError("GENDER_VIOLATION", `Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - role requires female performer`, { performer: assignment.performer, showId: assignment.showId });
         }
       }
 
@@ -1638,9 +1646,11 @@ export class SchedulingAlgorithm {
 
   private formatDateForValidation(date: string, time: string): string {
     try {
-      const dateObj = new Date(date);
-      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
-      const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      // Noon-UTC anchor + explicit UTC formatting so the weekday/date match the
+      // calendar date in every timezone.
+      const dateObj = new Date(date + "T12:00:00Z");
+      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+      const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
       const [hours, minutes] = time.split(':');
       const timeObj = new Date();
       timeObj.setHours(parseInt(hours), parseInt(minutes));

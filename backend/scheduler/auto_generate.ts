@@ -10,6 +10,8 @@ export interface AutoGenerateResponse {
   success: boolean;
   assignments: Assignment[];
   errors?: string[];
+  warnings?: string[];
+  generationId?: string;
 }
 
 // Generates optimal cast assignments for the given shows using constraint satisfaction.
@@ -26,7 +28,9 @@ export const autoGenerate = api<AutoGenerateRequest, AutoGenerateResponse>(
     return {
       success: result.success,
       assignments: result.assignments,
-      errors: result.errors
+      errors: result.errors,
+      warnings: result.warnings,
+      generationId: result.generationId
     };
   }
 );

@@ -87,9 +87,11 @@ export const validateComprehensive = api<ValidateComprehensiveRequest, ValidateC
     // Helper function to format dates
     const formatDateForDisplay = (date: string, time: string): string => {
       try {
-        const dateObj = new Date(date);
-        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
-        const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        // Noon-UTC anchor + explicit UTC formatting so the weekday/date match
+        // the calendar date in every timezone.
+        const dateObj = new Date(date + "T12:00:00Z");
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+        const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
         const [hours, minutes] = time.split(':');
         const timeObj = new Date();
         timeObj.setHours(parseInt(hours), parseInt(minutes));
@@ -600,9 +602,9 @@ function analyzeRoleCompleteness(assignments: Assignment[], activeShows: Show[])
       .filter(show => !assignedShowIds.has(show.id))
       .map(show => {
         try {
-          const date = new Date(show.date);
-          const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-          const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const date = new Date(show.date + "T12:00:00Z");
+          const dayName = date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+          const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
           return `${dayName} ${monthDay}`;
         } catch {
           return show.date;

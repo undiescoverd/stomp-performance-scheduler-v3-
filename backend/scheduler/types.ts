@@ -5,6 +5,9 @@ export type DayStatus = "show" | "travel" | "dayoff";
 export interface CastMember {
   name: string;
   eligibleRoles: Role[];
+  // Optional so legacy/company-loaded records still typecheck. When absent,
+  // gender is inferred from eligibility for a female-only role (see algorithm).
+  gender?: "male" | "female";
 }
 
 export interface Show {
@@ -38,18 +41,18 @@ export interface Schedule {
 }
 
 export const CAST_MEMBERS: CastMember[] = [
-  { name: "PHIL", eligibleRoles: ["Sarge"] },
-  { name: "SEAN", eligibleRoles: ["Sarge", "Potato"] },
-  { name: "JAMIE", eligibleRoles: ["Potato", "Ringo"] },
-  { name: "ADAM", eligibleRoles: ["Ringo", "Particle"] },
-  { name: "CARY", eligibleRoles: ["Particle"] },
-  { name: "JOE", eligibleRoles: ["Ringo", "Mozzie"] },
-  { name: "JOSE", eligibleRoles: ["Mozzie"] },
-  { name: "JOSH", eligibleRoles: ["Who"] },
-  { name: "CADE", eligibleRoles: ["Who", "Ringo", "Potato"] },
-  { name: "MOLLY", eligibleRoles: ["Bin", "Cornish"] },
-  { name: "JASMINE", eligibleRoles: ["Bin", "Cornish"] },
-  { name: "SERENA", eligibleRoles: ["Bin", "Cornish"] }
+  { name: "PHIL", eligibleRoles: ["Sarge"], gender: "male" },
+  { name: "SEAN", eligibleRoles: ["Sarge", "Potato"], gender: "male" },
+  { name: "JAMIE", eligibleRoles: ["Potato", "Ringo"], gender: "male" },
+  { name: "ADAM", eligibleRoles: ["Ringo", "Particle"], gender: "male" },
+  { name: "CARY", eligibleRoles: ["Particle"], gender: "male" },
+  { name: "JOE", eligibleRoles: ["Ringo", "Mozzie"], gender: "male" },
+  { name: "JOSE", eligibleRoles: ["Mozzie"], gender: "male" },
+  { name: "JOSH", eligibleRoles: ["Who"], gender: "male" },
+  { name: "CADE", eligibleRoles: ["Who", "Ringo", "Potato"], gender: "male" },
+  { name: "MOLLY", eligibleRoles: ["Bin", "Cornish"], gender: "female" },
+  { name: "JASMINE", eligibleRoles: ["Bin", "Cornish"], gender: "female" },
+  { name: "SERENA", eligibleRoles: ["Bin", "Cornish"], gender: "female" }
 ];
 
 export const ROLES: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
