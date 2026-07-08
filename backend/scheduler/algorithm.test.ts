@@ -229,6 +229,148 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     });
   });
 
+  describe('RED-day refill and re-validation (Phase 3)', () => {
+    const allRolesSet = new Set<string>(allRoles);
+
+    it('every successful generation ships fully-cast shows AND 1 full-day RED per performer', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const showDates = new Map(weekShows.map(s => [s.id, s.date]));
+
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const result = await algorithm.autoGenerate();
+        if (!result.success) continue;
+
+        // (a) Every show: exactly 8 unique performers filling all 8 roles.
+        for (const show of weekShows.filter(s => s.status === 'show')) {
+          const stage = result.assignments.filter(a => a.showId === show.id && a.role !== 'OFF');
+          const roles = new Set(stage.map(a => a.role));
+          const performers = new Set(stage.map(a => a.performer));
+          expect(stage.length).toBe(8);
+          expect(roles.size).toBe(8);
+          expect(performers.size).toBe(8);
+          expect([...roles].every(r => allRolesSet.has(r as string))).toBe(true);
+        }
+
+        // (b) & (c) Every performer: exactly 1 RED day, and it is a full day off.
+        for (const member of defaultCastMembers) {
+          const redDates = new Set(
+            result.assignments
+              .filter(a => a.performer === member.name && a.role === 'OFF' && a.isRedDay)
+              .map(a => showDates.get(a.showId))
+          );
+          expect(redDates.size).toBe(1);
+
+          const redDate = [...redDates][0];
+          const worksOnRedDate = result.assignments.some(a =>
+            a.performer === member.name && a.role !== 'OFF' && showDates.get(a.showId) === redDate
+          );
+          expect(worksOnRedDate).toBe(false);
+        }
+      }
+    });
+
+    it('findRefillCandidate returns an eligible, constraint-clean substitute', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const tue = weekShows.find(s => s.id === 'tue')!;
+      // No one assigned yet; refilling Sarge that PHIL vacated -> SEAN (the only
+      // other Sarge-eligible performer).
+      const pick = (algorithm as any).findRefillCandidate([], tue, 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBe('SEAN');
+    });
+
+    it('findRefillCandidate returns null when the only substitute is unavailable', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const tue = weekShows.find(s => s.id === 'tue')!;
+      // SEAN already on stage in this show -> no eligible substitute for Sarge.
+      const current = [{ showId: 'tue', role: 'Potato', performer: 'SEAN' }];
+      const pick = (algorithm as any).findRefillCandidate(current, tue, 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBeNull();
+
+      // SEAN's own RED day is this date -> excluded.
+      const pick2 = (algorithm as any).findRefillCandidate([], tue, 'Sarge', 'PHIL', { SEAN: tue.date }, new Set());
+      expect(pick2).toBeNull();
+    });
+
+    it('forced-RED refill: directly exercises assignRedDays when a performer works every date', () => {
+      // Three single-show weekdays. PHIL (Sarge-only) is cast every day, so he
+      // has NO natural day off and MUST go through the forced-RED + refill path;
+      // every other performer gets at least one natural day off. The refill has
+      // to move PHIL off one date and substitute SEAN (the only other Sarge) —
+      // a fully valid 8-cast schedule, so casting must be preserved afterward.
+      const days: Show[] = [
+        { id: 'd1', date: '2024-01-02', time: '19:00', callTime: '18:00', status: 'show' },
+        { id: 'd2', date: '2024-01-03', time: '19:00', callTime: '18:00', status: 'show' },
+        { id: 'd3', date: '2024-01-04', time: '19:00', callTime: '18:00', status: 'show' }
+      ];
+      const cast = (showId: string, roles: Record<string, string>) =>
+        Object.entries(roles).map(([role, performer]) => ({ showId, role: role as Role, performer }));
+
+      const stage = [
+        ...cast('d1', { Sarge: 'PHIL', Potato: 'JAMIE', Ringo: 'ADAM', Particle: 'CARY', Mozzie: 'JOE', Who: 'JOSH', Bin: 'MOLLY', Cornish: 'JASMINE' }),
+        ...cast('d2', { Sarge: 'PHIL', Potato: 'SEAN', Mozzie: 'JOSE', Particle: 'ADAM', Who: 'JOSH', Ringo: 'CADE', Bin: 'JASMINE', Cornish: 'SERENA' }),
+        ...cast('d3', { Sarge: 'PHIL', Potato: 'JAMIE', Particle: 'CARY', Mozzie: 'JOSE', Ringo: 'JOE', Who: 'CADE', Bin: 'MOLLY', Cornish: 'SERENA' })
+      ];
+
+      const algorithm = new SchedulingAlgorithm(days, defaultCastMembers);
+      const result: any[] = (algorithm as any).assignRedDays(stage);
+      const warnings: string[] = (algorithm as any).lastRedDayWarnings;
+
+      // Casting preserved: every show still has 8 unique performers, 8 roles.
+      for (const show of days) {
+        const onStage = result.filter(a => a.showId === show.id && a.role !== 'OFF');
+        expect(onStage.length).toBe(8);
+        expect(new Set(onStage.map(a => a.role)).size).toBe(8);
+        expect(new Set(onStage.map(a => a.performer)).size).toBe(8);
+      }
+
+      // Every performer gets exactly one RED day, and it is a full day off.
+      const showDate = new Map(days.map(s => [s.id, s.date]));
+      for (const member of defaultCastMembers) {
+        const redDates = new Set(result.filter(a => a.performer === member.name && a.role === 'OFF' && a.isRedDay).map(a => showDate.get(a.showId)));
+        expect(redDates.size).toBe(1);
+        const worksOnRed = result.some(a => a.performer === member.name && a.role !== 'OFF' && showDate.get(a.showId) === [...redDates][0]);
+        expect(worksOnRed).toBe(false);
+      }
+      expect(warnings).toEqual([]);
+    });
+
+    it('findRefillCandidate rejects a sub that would create back-to-back doubles', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const sunEve = weekShows.find(s => s.id === 'sun_eve')!;
+      // SEAN already plays a Saturday double + Sunday matinee. Adding SEAN to
+      // Sunday evening makes Sat + Sun both doubles => back-to-back. SEAN is the
+      // only Sarge sub besides PHIL, so the candidate is rejected -> null.
+      const current = [
+        { showId: 'sat_mat', role: 'Potato', performer: 'SEAN' },
+        { showId: 'sat_eve', role: 'Potato', performer: 'SEAN' },
+        { showId: 'sun_mat', role: 'Potato', performer: 'SEAN' }
+      ];
+      const pick = (algorithm as any).findRefillCandidate(current, sunEve, 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBeNull();
+    });
+
+    it('findRefillCandidate rejects a sub that would exceed the weekly / consecutive cap', () => {
+      const singleWeek: Show[] = ['2024-01-02','2024-01-03','2024-01-04','2024-01-05','2024-01-06','2024-01-07','2024-01-08']
+        .map((date, i) => ({ id: `s${i}`, date, time: '19:00', callTime: '18:00', status: 'show' as const }));
+      const algorithm = new SchedulingAlgorithm(singleWeek, defaultCastMembers);
+      // SEAN already works 6 shows; adding a 7th exceeds the weekly cap of 6.
+      const current = singleWeek.slice(0, 6).map(s => ({ showId: s.id, role: 'Potato', performer: 'SEAN' }));
+      const pick = (algorithm as any).findRefillCandidate(current, singleWeek[6], 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBeNull();
+    });
+
+    it('pure run counters honor the §0 date rules', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      // Adjacent dates: 2 (double) + 1 = run of 3.
+      expect((algorithm as any).maxConsecutiveFromDateCounts({ '2024-01-02': 2, '2024-01-03': 1 })).toBe(3);
+      // Gap day resets: max is a single date's count.
+      expect((algorithm as any).maxConsecutiveFromDateCounts({ '2024-01-02': 2, '2024-01-04': 1 })).toBe(2);
+      // Adjacent doubles = back-to-back; non-adjacent doubles are not.
+      expect((algorithm as any).hasBackToBackDoublesFromDateCounts({ '2024-01-06': 2, '2024-01-07': 2 })).toBe(true);
+      expect((algorithm as any).hasBackToBackDoublesFromDateCounts({ '2024-01-05': 2, '2024-01-07': 2 })).toBe(false);
+    });
+  });
+
   describe('Weekly Limit Enforcement', () => {
     it('should never assign more than 6 shows per performer per week', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);

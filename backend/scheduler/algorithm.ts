@@ -43,6 +43,10 @@ export class SchedulingAlgorithm {
   private roles: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];
   private offAssignments: Map<string, string[]> = new Map();
   
+  // Warnings produced by the most recent assignRedDays() call (e.g. a performer
+  // whose forced RED day could not be created without breaking casting).
+  private lastRedDayWarnings: string[] = [];
+
   // Cached data structures for performance
   private _sortedActiveShows: Show[] | null = null;
   private _showIndexMap: Map<string, number> | null = null;
@@ -614,6 +618,18 @@ export class SchedulingAlgorithm {
     return true;
   }
 
+  // Errors that make an attempt unusable (must retry / cannot ship). Kept as a
+  // single predicate so the generation path and the post-RED re-validation
+  // agree on what "critical" means.
+  private hasCriticalErrors(errors: string[]): boolean {
+    return errors.some(error =>
+      error.includes("exactly 8") || error.includes("needs exactly") ||
+      error.includes("multiple roles") || error.includes("not eligible") ||
+      error.includes("exceeds maximum of 6 consecutive") ||
+      error.includes("back-to-back double days")
+    );
+  }
+
   public async autoGenerate(): Promise<AutoGenerateResult> {
     try {
       this.clearCaches();
@@ -643,26 +659,27 @@ export class SchedulingAlgorithm {
         if (this.generateScheduleAttempt()) {
           const assignments = this.convertToAssignments();
           const validation = this.validateSchedule(assignments);
-          
-          // Check for critical errors (exactly 8 on stage, correct number off)
-          const hasCriticalErrors = validation.errors.some(error =>
-            error.includes("exactly 8") || error.includes("needs exactly") ||
-            error.includes("multiple roles") || error.includes("not eligible") ||
-            error.includes("exceeds maximum of 6 consecutive") ||
-            error.includes("back-to-back double days")
-          );
-          
-          if (!hasCriticalErrors) {
-            // Add RED day assignments
+
+          if (!this.hasCriticalErrors(validation.errors)) {
+            // Add RED day assignments (may vacate + refill stage roles)
             const finalAssignments = this.assignRedDays(assignments);
-            
+
+            // RE-VALIDATE: RED-day assignment can vacate stage roles. If the
+            // refill left any show under-filled (or otherwise broke a critical
+            // rule), or a performer could not be given a RED day at all, do NOT
+            // ship this attempt — fall through to the next one.
+            const postValidation = this.validateSchedule(finalAssignments);
+            if (this.hasCriticalErrors(postValidation.errors) || this.lastRedDayWarnings.length > 0) {
+              continue;
+            }
+
             // Add fairness validation
             const { warnings, performerDayOffCounts } = this.validateDayOffFairness(finalAssignments);
-            
+
             return {
               success: true,
               assignments: finalAssignments,
-              warnings: warnings,
+              warnings: [...this.lastRedDayWarnings, ...warnings],
               dayOffStats: performerDayOffCounts,
               generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
               generatedAt: new Date().toISOString()
@@ -677,15 +694,20 @@ export class SchedulingAlgorithm {
       
       if (partialResult.success || partialResult.assignments.length > 0) {
         const finalAssignments = this.assignRedDays(partialResult.assignments);
-        
+
+        // Re-validate: surface any post-RED casting problems in the returned
+        // errors instead of silently discarding them (this is already a
+        // best-effort partial result, so we still return it).
+        const postValidation = this.validateSchedule(finalAssignments);
+
         // Add fairness validation for partial results too
         const { warnings, performerDayOffCounts } = this.validateDayOffFairness(finalAssignments);
-        
+
         return {
           success: true,
           assignments: finalAssignments,
-          errors: partialResult.errors,
-          warnings: warnings,
+          errors: [...(partialResult.errors ?? []), ...postValidation.errors],
+          warnings: [...this.lastRedDayWarnings, ...warnings],
           dayOffStats: performerDayOffCounts,
           generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
           generatedAt: new Date().toISOString()
@@ -905,6 +927,7 @@ export class SchedulingAlgorithm {
 
   // Assign RED days to OFF performers with company day off handling
   private assignRedDays(assignments: Assignment[]): Assignment[] {
+    this.lastRedDayWarnings = [];
     const companyDayOff = this.detectCompanyDayOff();
     const allPerformers = this.castMembers.map(m => m.name);
     
@@ -981,70 +1004,86 @@ export class SchedulingAlgorithm {
     for (const performer of allPerformers) {
       const naturalDaysOff = performerNaturalDaysOff[performer];
       if (naturalDaysOff.length > 0) {
-        // Sort by preference: weekdays first, then by number of shows (fewer preferred)
+        // Per §0 rule 6 the real preference is single-show days (Tue-Fri),
+        // so order by fewest shows first, then weekday as a tiebreak.
         const sortedDaysOff = naturalDaysOff.sort((a, b) => {
+          const showsOnA = showsByDate[a]?.length || 99;
+          const showsOnB = showsByDate[b]?.length || 99;
+          if (showsOnA !== showsOnB) {
+            return showsOnA - showsOnB;
+          }
+
+          // Then prefer weekdays over weekends
           const aIsWeekend = this.isWeekend(a);
           const bIsWeekend = this.isWeekend(b);
-          
-          // Prefer weekdays over weekends
           if (aIsWeekend !== bIsWeekend) {
             return aIsWeekend ? 1 : -1;
           }
-          
-          // Then prefer days with fewer shows
-          const showsOnA = showsByDate[a]?.length || 99;
-          const showsOnB = showsByDate[b]?.length || 99;
-          return showsOnA - showsOnB;
+          return 0;
         });
         
         performerRedDays[performer] = sortedDaysOff[0];
       }
     }
     
-    // For performers without natural days off, create forced RED days
+    // For performers without natural days off, create forced RED days.
+    // Removing a performer from every show on a date vacates the stage roles
+    // they held, so each vacated (show, role) must be REFILLED by a
+    // constraint-clean substitute — otherwise the show ships with < 8 on stage.
     const performersWithoutRedDays = allPerformers.filter(p => !performerRedDays[p]);
-    
+    const showById = new Map(this.shows.map(s => [s.id, s]));
+
     for (const performer of performersWithoutRedDays) {
-      // Find the best day to give them off (prefer weekdays, avoid back-to-back double days)
-      let bestDate = availableDates[0];
-      let bestScore = -1;
-      
-      for (const date of availableDates) {
-        // Skip if this date is already assigned as RED day to this performer
-        if (performerRedDays[performer]) continue;
-        
-        const isWeekend = this.isWeekend(date);
-        const isBackToBackDouble = this.isBackToBackDoubleDay(date);
-        const showsOnDate = showsByDate[date];
-        
-        // Calculate score (higher is better)
-        let score = 0;
-        if (!isWeekend) score += 10; // Strongly prefer weekdays
-        if (!isBackToBackDouble) score += 5; // Avoid back-to-back double days when possible
-        score += (3 - showsOnDate.length); // Prefer days with fewer shows
-        
-        if (score > bestScore) {
-          bestScore = score;
-          bestDate = date;
+      // Rank candidate dates by preference: single-show days first (§0 rule 6),
+      // then avoid back-to-back double days, then a small weekday tiebreak.
+      const rankedDates = [...availableDates].sort((a, b) => this.scoreRedDate(b, showsByDate) - this.scoreRedDate(a, showsByDate));
+
+      // Performers who still need their own free day must not be pulled onto
+      // stage to cover this vacancy (it could erase their only day off).
+      const stillNeedsRedDay = new Set(
+        performersWithoutRedDays.filter(p => p !== performer && !performerRedDays[p])
+      );
+
+      let placed = false;
+      for (const date of rankedDates) {
+        // The stage roles this performer holds on the candidate date.
+        const vacated = finalAssignments.filter(a =>
+          a.performer === performer && a.role !== 'OFF' && showById.get(a.showId)?.date === date
+        );
+
+        // Work on a trial copy so an infeasible date leaves nothing half-done.
+        let trial = finalAssignments.filter(a =>
+          !(a.performer === performer && a.role !== 'OFF' && showById.get(a.showId)?.date === date)
+        );
+
+        let feasible = true;
+        for (const va of vacated) {
+          const show = showById.get(va.showId)!;
+          const substitute = this.findRefillCandidate(trial, show, va.role as Role, performer, performerRedDays, stillNeedsRedDay);
+          if (!substitute) {
+            feasible = false;
+            break;
+          }
+          trial = [...trial, { showId: va.showId, role: va.role, performer: substitute }];
+        }
+
+        if (feasible) {
+          finalAssignments.length = 0;
+          finalAssignments.push(...trial);
+          performerRedDays[performer] = date;
+          placed = true;
+          break;
         }
       }
-      
-      // Assign this performer to their RED day
-      performerRedDays[performer] = bestDate;
-      
-      // Remove this performer from all shows on their RED day
-      const showsOnRedDate = showsByDate[bestDate];
-      for (const show of showsOnRedDate) {
-        const existingAssignmentIndex = finalAssignments.findIndex(a => 
-          a.showId === show.id && a.performer === performer
-        );
-        if (existingAssignmentIndex !== -1) {
-          // Remove the assignment to create the day off
-          finalAssignments.splice(existingAssignmentIndex, 1);
-        }
+
+      if (!placed) {
+        // No date can be freed for this performer without under-filling a show.
+        // Leave their assignments intact; the autoGenerate re-validation will
+        // reject this attempt and try again.
+        this.lastRedDayWarnings.push(`Could not create a RED day for ${performer} without breaking casting`);
       }
     }
-    
+
     // Add OFF assignments with correct RED day markers
     for (const show of this.shows.filter(s => s.status === 'show')) {
       const stageAssignments = finalAssignments.filter(a => a.showId === show.id && a.role !== 'OFF');
@@ -1064,6 +1103,109 @@ export class SchedulingAlgorithm {
     }
     
     return finalAssignments;
+  }
+
+  // RED-day date preference (higher = better). Single-show days dominate
+  // (§0 rule 6), then avoid back-to-back double days, then a small weekday
+  // tiebreak.
+  private scoreRedDate(date: string, showsByDate: Record<string, Show[]>): number {
+    const showsOnDate = showsByDate[date]?.length ?? 0;
+    let score = (2 - showsOnDate) * 10; // 1-show day (=10) >> 2-show day (=0)
+    if (!this.isBackToBackDoubleDay(date)) score += 5;
+    if (!this.isWeekend(date)) score += 3;
+    return score;
+  }
+
+  // Find a substitute to fill a stage (show, role) vacated by a forced RED day.
+  // Pure over `current` (does not touch this.assignments): the candidate must be
+  // role/gender eligible, not already on stage in the show, not on their own RED
+  // day, not a performer who still needs their own free day, and must stay within
+  // the consecutive (<=6), back-to-back-double, and weekly (<=6) limits. Picks the
+  // eligible performer with the fewest shows so far (balance).
+  private findRefillCandidate(
+    current: Assignment[],
+    show: Show,
+    role: Role,
+    excludePerformer: string,
+    performerRedDays: Record<string, string>,
+    stillNeedsRedDay: Set<string>
+  ): string | null {
+    const onStageInShow = new Set(
+      current.filter(a => a.showId === show.id && a.role !== 'OFF').map(a => a.performer)
+    );
+    const showDateById = new Map(
+      this.shows.filter(s => s.status === 'show').map(s => [s.id, s.date])
+    );
+
+    // Per-performer performed-show counts per date, from `current`.
+    const datesByPerformer = new Map<string, Record<string, number>>();
+    for (const a of current) {
+      if (a.role === 'OFF') continue;
+      const date = showDateById.get(a.showId);
+      if (!date) continue;
+      const rec = datesByPerformer.get(a.performer) ?? {};
+      rec[date] = (rec[date] || 0) + 1;
+      datesByPerformer.set(a.performer, rec);
+    }
+
+    const candidates: { name: string; showCount: number }[] = [];
+    for (const member of this.castMembers) {
+      const name = member.name;
+      if (name === excludePerformer) continue;
+      if (onStageInShow.has(name)) continue;
+      if (performerRedDays[name] === show.date) continue;
+      if (stillNeedsRedDay.has(name)) continue;
+      if (!this.isPerformerEligibleForRole(name, role)) continue;
+
+      // Hypothetical schedule with this performer added to the show.
+      const dates = { ...(datesByPerformer.get(name) ?? {}) };
+      dates[show.date] = (dates[show.date] || 0) + 1;
+
+      const total = Object.values(dates).reduce((sum, n) => sum + n, 0);
+      if (total > 6) continue; // weekly cap
+      if (this.maxConsecutiveFromDateCounts(dates) > 6) continue;
+      if (this.hasBackToBackDoublesFromDateCounts(dates)) continue;
+
+      candidates.push({ name, showCount: total - 1 });
+    }
+
+    if (candidates.length === 0) return null;
+    candidates.sort((a, b) => a.showCount - b.showCount);
+    return candidates[0].name;
+  }
+
+  // Longest consecutive run given a performer's shows-per-date map. Same-date
+  // shows (a double) add their count; a gap day resets the run. §0 rule 2.
+  private maxConsecutiveFromDateCounts(dateCounts: Record<string, number>): number {
+    const dates = Object.keys(dateCounts).sort();
+    let max = 0;
+    let run = 0;
+    let prev: string | null = null;
+    for (const date of dates) {
+      if (prev && areDatesConsecutive(prev, date)) {
+        run += dateCounts[date];
+      } else {
+        run = dateCounts[date];
+      }
+      max = Math.max(max, run);
+      prev = date;
+    }
+    return max;
+  }
+
+  // True if the performer performs 2 shows on each of two adjacent dates. §0 rule 3.
+  private hasBackToBackDoublesFromDateCounts(dateCounts: Record<string, number>): boolean {
+    const dates = Object.keys(dateCounts).sort();
+    for (let i = 0; i < dates.length - 1; i++) {
+      if (
+        areDatesConsecutive(dates[i], dates[i + 1]) &&
+        dateCounts[dates[i]] === 2 &&
+        dateCounts[dates[i + 1]] === 2
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Helper method to determine if a date is a weekend
