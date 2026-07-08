@@ -415,6 +415,47 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     });
   });
 
+  describe('Structured rule codes (Phase 5)', () => {
+    const doubleWeekend: Show[] = [
+      { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+      { id: 'sat_eve', date: '2024-01-06', time: '21:00', callTime: '18:00', status: 'show' },
+      { id: 'sun_mat', date: '2024-01-07', time: '16:00', callTime: '14:30', status: 'show' },
+      { id: 'sun_eve', date: '2024-01-07', time: '19:00', callTime: '18:00', status: 'show' }
+    ];
+
+    it('validateSchedule emits structured items alongside the derived error strings', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const assignments = doubleWeekend.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL' }));
+      const result = algorithm.validateSchedule(assignments);
+      const b2b = result.items.find(i => i.code === 'BACK_TO_BACK_DOUBLES');
+      expect(b2b).toBeTruthy();
+      expect(b2b!.severity).toBe('error');
+      expect(b2b!.performer).toBe('PHIL');
+      // derived view still carries the human-readable message
+      expect(result.errors).toContain(b2b!.message);
+    });
+
+    it('the retry gate keys off the CODE, not the message text', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers) as any;
+      // Same code, arbitrarily reworded message -> still critical.
+      expect(algorithm.hasCriticalErrors([{ code: 'BACK_TO_BACK_DOUBLES', severity: 'error', message: 'totally different wording' }])).toBe(true);
+      // A non-critical code whose message happens to contain the old trigger
+      // string -> NOT critical (proves we no longer string-match).
+      expect(algorithm.hasCriticalErrors([{ code: 'UNDERUTILIZED', severity: 'warning', message: 'back-to-back double days exactly 8' }])).toBe(false);
+      // An overridden fatigue item is warning severity -> not critical.
+      expect(algorithm.hasCriticalErrors([{ code: 'BACK_TO_BACK_DOUBLES', severity: 'warning', message: 'override' }])).toBe(false);
+    });
+
+    it('closes the eligibility/gender hole: ineligible role assignment is now critical', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers) as any;
+      // PHIL is not eligible for Bin. The old string-matcher checked
+      // "not eligible" and missed the real string "not in eligible roles".
+      const result = algorithm.validateSchedule([{ showId: 'sat_mat', role: 'Bin', performer: 'PHIL' }]);
+      expect(result.items.some((i: any) => i.code === 'ROLE_INELIGIBLE' && i.severity === 'error')).toBe(true);
+      expect(algorithm.hasCriticalErrors(result.items)).toBe(true);
+    });
+  });
+
   describe('Weekly Limit Enforcement', () => {
     it('should never assign more than 6 shows per performer per week', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);

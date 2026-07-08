@@ -11,10 +11,36 @@ export interface AutoGenerateResult {
   generatedAt?: string;
 }
 
+// Stable, message-independent identity for each validation rule. Generation
+// retry decisions and any UI branching key off these codes, never off the
+// human-readable message text (which may be reworded freely).
+export type RuleCode =
+  | "CASTING_INCOMPLETE" | "CASTING_DUPLICATE" | "ROLE_INELIGIBLE" | "GENDER_VIOLATION"
+  | "CONSECUTIVE_EXCEEDED" | "BACK_TO_BACK_DOUBLES" | "WEEKLY_LIMIT_EXCEEDED"
+  | "RED_DAY_MULTIPLE" | "RED_DAY_NOT_FULL_DAY" | "RED_DAY_MISSING"
+  | "OVERRIDE_ACKNOWLEDGED" | "UNDERUTILIZED" | "OVERWORKED" | "CONSECUTIVE_DAYS_OFF";
+
+export interface ValidationItem {
+  code: RuleCode;
+  severity: "error" | "warning";
+  message: string;
+  performer?: string;
+  showId?: string;
+}
+
+// Codes that make a generated schedule unusable (must retry / cannot ship).
+// Deliberately excludes RED_DAY_* (RED assignment is a separate post-pass with
+// its own retry signal) and the soft advisory codes.
+const CRITICAL_RULE_CODES: ReadonlySet<RuleCode> = new Set<RuleCode>([
+  "CASTING_INCOMPLETE", "CASTING_DUPLICATE", "ROLE_INELIGIBLE", "GENDER_VIOLATION",
+  "CONSECUTIVE_EXCEEDED", "BACK_TO_BACK_DOUBLES", "WEEKLY_LIMIT_EXCEEDED"
+]);
+
 export interface ConstraintResult {
   isValid: boolean;
   errors: string[];
   warnings: string[];
+  items: ValidationItem[];
 }
 
 interface ShowAssignment {
@@ -618,16 +644,12 @@ export class SchedulingAlgorithm {
     return true;
   }
 
-  // Errors that make an attempt unusable (must retry / cannot ship). Kept as a
-  // single predicate so the generation path and the post-RED re-validation
-  // agree on what "critical" means.
-  private hasCriticalErrors(errors: string[]): boolean {
-    return errors.some(error =>
-      error.includes("exactly 8") || error.includes("needs exactly") ||
-      error.includes("multiple roles") || error.includes("not eligible") ||
-      error.includes("exceeds maximum of 6 consecutive") ||
-      error.includes("back-to-back double days")
-    );
+  // Whether any validation item makes an attempt unusable (must retry / cannot
+  // ship). Keyed off structured rule codes, not message strings, so rewording a
+  // message can never silently change generator behavior. Both the generation
+  // path and the post-RED re-validation share this predicate.
+  private hasCriticalErrors(items: ValidationItem[]): boolean {
+    return items.some(item => item.severity === "error" && CRITICAL_RULE_CODES.has(item.code));
   }
 
   public async autoGenerate(): Promise<AutoGenerateResult> {
@@ -660,7 +682,7 @@ export class SchedulingAlgorithm {
           const assignments = this.convertToAssignments();
           const validation = this.validateSchedule(assignments);
 
-          if (!this.hasCriticalErrors(validation.errors)) {
+          if (!this.hasCriticalErrors(validation.items)) {
             // Add RED day assignments (may vacate + refill stage roles)
             const finalAssignments = this.assignRedDays(assignments);
 
@@ -669,7 +691,7 @@ export class SchedulingAlgorithm {
             // rule), or a performer could not be given a RED day at all, do NOT
             // ship this attempt — fall through to the next one.
             const postValidation = this.validateSchedule(finalAssignments);
-            if (this.hasCriticalErrors(postValidation.errors) || this.lastRedDayWarnings.length > 0) {
+            if (this.hasCriticalErrors(postValidation.items) || this.lastRedDayWarnings.length > 0) {
               continue;
             }
 
@@ -1414,8 +1436,19 @@ export class SchedulingAlgorithm {
   }
 
   public validateSchedule(assignments: Assignment[]): ConstraintResult {
+    const items: ValidationItem[] = [];
     const errors: string[] = [];
     const warnings: string[] = [];
+    // errors/warnings are derived views over the structured items so the public
+    // ConstraintResult stays backward-compatible.
+    const addError = (code: RuleCode, message: string, meta?: { performer?: string; showId?: string }) => {
+      errors.push(message);
+      items.push({ code, severity: "error", message, ...meta });
+    };
+    const addWarning = (code: RuleCode, message: string, meta?: { performer?: string; showId?: string }) => {
+      warnings.push(message);
+      items.push({ code, severity: "warning", message, ...meta });
+    };
 
     // Filter active shows for validation
     const activeShows = this.shows.filter(show => show.status === "show");
@@ -1442,9 +1475,9 @@ export class SchedulingAlgorithm {
       if (uniquePerformers.size !== 8) {
         if (uniquePerformers.size < 8) {
           const missingCount = 8 - uniquePerformers.size;
-          errors.push(`Show ${showDate}: Missing ${missingCount} performer${missingCount > 1 ? 's' : ''} - must have exactly 8 on stage`);
+          addError("CASTING_INCOMPLETE", `Show ${showDate}: Missing ${missingCount} performer${missingCount > 1 ? 's' : ''} - must have exactly 8 on stage`, { showId: show.id });
         } else {
-          errors.push(`Show ${showDate}: Has ${uniquePerformers.size} performers but can only have 8 - remove duplicate assignments`);
+          addError("CASTING_DUPLICATE", `Show ${showDate}: Has ${uniquePerformers.size} performers but can only have 8 - remove duplicate assignments`, { showId: show.id });
         }
       }
 
@@ -1454,7 +1487,7 @@ export class SchedulingAlgorithm {
         if (filledRoles.size < 8) {
           const missingRoles = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"]
             .filter(role => !filledRoles.has(role as Role));
-          errors.push(`Show ${showDate}: Missing roles: ${missingRoles.join(", ")} - assign performers to these roles`);
+          addError("CASTING_INCOMPLETE", `Show ${showDate}: Missing roles: ${missingRoles.join(", ")} - assign performers to these roles`, { showId: show.id });
         }
       }
 
@@ -1462,14 +1495,14 @@ export class SchedulingAlgorithm {
       for (const assignment of stageAssignments) {
         const castMember = this.castMembers.find(m => m.name === assignment.performer);
         if (!castMember) {
-          errors.push(`Show ${showDate}: Unknown performer "${assignment.performer}" assigned to ${assignment.role}`);
+          addError("ROLE_INELIGIBLE", `Show ${showDate}: Unknown performer "${assignment.performer}" assigned to ${assignment.role}`, { performer: assignment.performer, showId: assignment.showId });
         } else if (!castMember.eligibleRoles.includes(assignment.role as Role)) {
-          errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - not in eligible roles`);
+          addError("ROLE_INELIGIBLE", `Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - not in eligible roles`, { performer: assignment.performer, showId: assignment.showId });
         } else if (FEMALE_ONLY_ROLES.includes(assignment.role as Role)) {
           // Check gender constraint for female-only roles
           const femaleNames = ["MOLLY", "JASMINE", "SERENA"];
           if (!femaleNames.includes(assignment.performer)) {
-            errors.push(`Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - role requires female performer`);
+            addError("GENDER_VIOLATION", `Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - role requires female performer`, { performer: assignment.performer, showId: assignment.showId });
           }
         }
       }
@@ -1486,7 +1519,7 @@ export class SchedulingAlgorithm {
       for (const [performer, duplicateAssignments] of performerCounts) {
         if (duplicateAssignments.length > 1) {
           const roles = duplicateAssignments.map(a => a.role);
-          errors.push(`Show ${showDate}: ${performer} assigned to multiple roles (${roles.join(", ")}) - each performer can only have one role per show`);
+          addError("CASTING_DUPLICATE", `Show ${showDate}: ${performer} assigned to multiple roles (${roles.join(", ")}) - each performer can only have one role per show`, { performer, showId: show.id });
         }
       }
     }
@@ -1496,7 +1529,7 @@ export class SchedulingAlgorithm {
     for (const [memberName, data] of performerData) {
       for (const sequence of data.sequences) {
         if (sequence.count > 6) {
-          errors.push(`${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - exceeds maximum of 6 consecutive shows`);
+          addError("CONSECUTIVE_EXCEEDED", `${memberName} has ${sequence.count} consecutive shows (${sequence.startDate} to ${sequence.endDate}) - exceeds maximum of 6 consecutive shows`, { performer: memberName });
         }
       }
     }
@@ -1531,9 +1564,9 @@ export class SchedulingAlgorithm {
         if (showsByDate[d1].length === 2 && showsByDate[d2].length === 2 && areDatesConsecutive(d1, d2)) {
           const overridden = [...showsByDate[d1], ...showsByDate[d2]].some(a => a.isOverride);
           if (overridden) {
-            warnings.push(`⚠ ${member.name}: 4 shows across ${d1}/${d2} — manual override (injury cover)`);
+            addWarning("BACK_TO_BACK_DOUBLES", `⚠ ${member.name}: 4 shows across ${d1}/${d2} — manual override (injury cover)`, { performer: member.name });
           } else {
-            errors.push(`${member.name} has 4 shows across 2 consecutive days (${d1} and ${d2}) - violates back-to-back double days rule`);
+            addError("BACK_TO_BACK_DOUBLES", `${member.name} has 4 shows across 2 consecutive days (${d1} and ${d2}) - violates back-to-back double days rule`, { performer: member.name });
           }
         }
       }
@@ -1544,9 +1577,9 @@ export class SchedulingAlgorithm {
       const memberStage = stageByPerformer.get(member.name) ?? [];
       if (memberStage.length > 6) {
         if (memberStage.some(a => a.isOverride)) {
-          warnings.push(`⚠ ${member.name}: ${memberStage.length} shows this week — manual override (injury cover)`);
+          addWarning("WEEKLY_LIMIT_EXCEEDED", `⚠ ${member.name}: ${memberStage.length} shows this week — manual override (injury cover)`, { performer: member.name });
         } else {
-          errors.push(`${member.name} has ${memberStage.length} shows this week - exceeds maximum of 6 shows per week`);
+          addError("WEEKLY_LIMIT_EXCEEDED", `${member.name} has ${memberStage.length} shows this week - exceeds maximum of 6 shows per week`, { performer: member.name });
         }
       }
     }
@@ -1567,10 +1600,10 @@ export class SchedulingAlgorithm {
 
     for (const performer in performerRedDays) {
         if (performerRedDays[performer].length > 1) {
-            errors.push(`${performer} has more than one RED day assigned.`);
+            addError("RED_DAY_MULTIPLE", `${performer} has more than one RED day assigned.`, { performer });
         }
         if (this.castMembers.some(m => m.name === performer) && performerRedDays[performer].length === 0) {
-            warnings.push(`${performer} does not have a RED day assigned.`);
+            addWarning("RED_DAY_MISSING", `${performer} does not have a RED day assigned.`, { performer });
         }
 
         for (const redDate of performerRedDays[performer]) {
@@ -1578,7 +1611,7 @@ export class SchedulingAlgorithm {
             const assignmentsOnRedDate = assignments.filter(a => a.performer === performer && showsOnRedDate.some(s => s.id === a.showId));
             const isFullDayOff = assignmentsOnRedDate.every(a => a.role === 'OFF');
             if (!isFullDayOff) {
-                errors.push(`${performer} has a RED day on ${redDate} but is also assigned to a role on that day.`);
+                addError("RED_DAY_NOT_FULL_DAY", `${performer} has a RED day on ${redDate} but is also assigned to a role on that day.`, { performer });
             }
         }
     }
@@ -1589,16 +1622,17 @@ export class SchedulingAlgorithm {
     
     for (const [performer, count] of Object.entries(showCounts)) {
       if (count < 2 && count > 0 && activeShows.length >= 4) {
-        warnings.push(`${performer} only has ${count} show${count === 1 ? '' : 's'} (underutilized)`);
+        addWarning("UNDERUTILIZED", `${performer} only has ${count} show${count === 1 ? '' : 's'} (underutilized)`, { performer });
       } else if (count > Math.ceil(averageShows * 1.5) && activeShows.length > 4) {
-        warnings.push(`${performer} has ${count} shows (potentially overworked)`);
+        addWarning("OVERWORKED", `${performer} has ${count} shows (potentially overworked)`, { performer });
       }
     }
 
     return {
       isValid: errors.length === 0,
       errors,
-      warnings
+      warnings,
+      items
     };
   }
 
