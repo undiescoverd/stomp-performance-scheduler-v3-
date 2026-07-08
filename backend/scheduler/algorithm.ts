@@ -1598,7 +1598,11 @@ export class SchedulingAlgorithm {
 
     const offAssignments = assignments.filter(a => a.role === 'OFF' && a.isRedDay);
     offAssignments.forEach(a => {
-        const show = activeShows.find(s => s.id === a.showId);
+        // Resolve against ALL shows, not just 'show'-status ones: a full-company
+        // RED day sits on a 'dayoff'-status show (see §7), so restricting to
+        // activeShows here would drop it and falsely flag everyone as missing a
+        // RED day.
+        const show = this.shows.find(s => s.id === a.showId);
         if (show) {
             if (!performerRedDays[a.performer].includes(show.date)) {
                 performerRedDays[a.performer].push(show.date);

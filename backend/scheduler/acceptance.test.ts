@@ -131,6 +131,12 @@ describe("Phase 7 — acceptance", () => {
       expect([...reds]).toEqual(["2024-01-02"]); // Tuesday company dayoff
       expect(hasBackToBackDoubles(stageCountsByDate(a, shows, member.name))).toBe(false);
     }
+
+    // The validator itself must recognize the company RED (which sits on a
+    // dayoff-status show) and NOT falsely flag everyone as missing a RED day.
+    const validation = algorithm.validateSchedule(a);
+    expect(validation.warnings.filter(w => w.includes("does not have a RED day"))).toEqual([]);
+    expect(validation.items.filter(i => i.code === "RED_DAY_MISSING")).toEqual([]);
   });
 
   it("two dayoff days: only the earliest is the company RED day", async () => {
