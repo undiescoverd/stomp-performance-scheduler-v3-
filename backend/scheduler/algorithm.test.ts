@@ -37,16 +37,16 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
   });
 
   describe('CRITICAL BUG FIX: Consecutive Show Prevention', () => {
-    it('should NEVER allow more than 3 consecutive shows', async () => {
+    it('should never allow more than 6 consecutive shows', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
-      
+
       // Run multiple attempts to ensure consistency
       for (let attempt = 0; attempt < 10; attempt++) {
         const result = await algorithm.autoGenerate();
-        
+
         if (result.success) {
           const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
-          
+
           // Check every performer's consecutive show count
           for (const member of defaultCastMembers) {
             const memberShows = stageAssignments
@@ -54,33 +54,62 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
               .map(a => weekShows.find(s => s.id === a.showId)!)
               .filter(Boolean)
               .sort((a, b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime());
-            
+
             if (memberShows.length === 0) continue;
 
-            // Check consecutive sequences
+            // Independently recompute the consecutive run using the §0 rule:
+            // DATES ONLY, a gap day resets the run, and a same-day matinee +
+            // evening double counts as 2. (Do not trust the validator here.)
             let maxConsecutive = 1;
             let currentConsecutive = 1;
-            
+
             for (let i = 1; i < memberShows.length; i++) {
-              const prevDate = new Date(`${memberShows[i-1].date}T${memberShows[i-1].time}`);
-              const currDate = new Date(`${memberShows[i].date}T${memberShows[i].time}`);
-              const daysDiff = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
-              
-              if (daysDiff <= 2) { // Within 2 days = consecutive
+              const prevDay = new Date(`${memberShows[i-1].date}T12:00:00Z`).getTime();
+              const currDay = new Date(`${memberShows[i].date}T12:00:00Z`).getTime();
+              const dayDiff = Math.round((currDay - prevDay) / (1000 * 60 * 60 * 24));
+
+              if (dayDiff === 0 || dayDiff === 1) { // same date (double) or adjacent date
                 currentConsecutive++;
                 maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
               } else {
                 currentConsecutive = 1;
               }
             }
-            
-            // UPDATED: Must never exceed 6 consecutive shows (changed from 3)
-            expect(maxConsecutive).toBeLessThanOrEqual(6, 
+
+            // 6 consecutive shows is LEGAL; only 7+ is a violation.
+            expect(maxConsecutive).toBeLessThanOrEqual(6,
               `${member.name} has ${maxConsecutive} consecutive shows - CRITICAL VIOLATION! Shows: ${memberShows.map(s => `${s.date} ${s.time}`).join(', ')}`
             );
           }
         }
       }
+    });
+
+    it('does not chain a run across a gap day (regression for the old <=2 bug)', () => {
+      // Performer works Tue mat+eve, Wed, Thu, Fri, then Sun mat+eve — with
+      // SATURDAY entirely off. Tue and Sun are the only double days and are NOT
+      // adjacent, so there is no back-to-back-doubles violation. That is 7
+      // shows total, but the Sat gap resets the run: the longest true run is
+      // Tue mat,Tue eve,Wed,Thu,Fri = 5. The old datetime `<= 2` logic wrongly
+      // chained Fri -> Sun into a single 7-run and produced a false error.
+      const gapShows: Show[] = [
+        { id: "tue_mat", date: "2024-01-02", time: "16:00", callTime: "14:00", status: "show" },
+        { id: "tue_eve", date: "2024-01-02", time: "21:00", callTime: "18:00", status: "show" },
+        { id: "wed",     date: "2024-01-03", time: "21:00", callTime: "19:00", status: "show" },
+        { id: "thu",     date: "2024-01-04", time: "21:00", callTime: "19:00", status: "show" },
+        { id: "fri",     date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" },
+        // Saturday: no shows for this performer (full gap day)
+        { id: "sun_mat", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" },
+        { id: "sun_eve", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(gapShows, defaultCastMembers);
+      // PHIL plays Sarge in every one of these 7 shows.
+      const assignments = gapShows.map(s => ({ showId: s.id, role: "Sarge" as Role, performer: "PHIL" }));
+
+      const result = algorithm.validateSchedule(assignments);
+      const consecutiveErrors = result.errors.filter(e => e.includes("consecutive shows"));
+      expect(consecutiveErrors).toEqual([]);
     });
 
     it('should prevent consecutive show violations during assignment, not just validate after', () => {

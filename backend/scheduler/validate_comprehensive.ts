@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { Show, Assignment } from "./types";
 import { SchedulingAlgorithm, ConstraintResult } from "./algorithm";
+import { areDatesConsecutive } from "./date_rules";
 
 export interface ValidateComprehensiveRequest {
   shows: Show[];
@@ -342,15 +343,13 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
     
     let currentSequence: { startDate: string; endDate: string; count: number; showIds: string[]; severity?: "ok" | "warning" | "critical" } | null = null;
     let maxConsecutive = 0;
-    let lastShowDate: Date | null = null;
-    
+    let lastShowDateStr: string | null = null;
+
     sortedShows.forEach((show, index) => {
-      const showDate = new Date(`${show.date}T${show.time}`);
-      
-      if (lastShowDate) {
-        const daysDiff = Math.floor((showDate.getTime() - lastShowDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (daysDiff <= 2) { // Consider consecutive if within 2 days
+      if (lastShowDateStr) {
+        // DATES ONLY: a gap day resets the run; a same-day matinee+evening
+        // pair stays consecutive. See date_rules.ts.
+        if (areDatesConsecutive(lastShowDateStr, show.date)) {
           if (currentSequence) {
             currentSequence.count++;
             currentSequence.endDate = formatDateForDisplay(show.date, show.time);
@@ -369,27 +368,29 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
           // End current sequence
           if (currentSequence && currentSequence.count >= 3) {
             const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
-            const severity = seq.count >= 6 ? "critical" : "ok";
-            sequences.push({ 
+            // 6 consecutive shows is LEGAL; only 7+ is a burnout violation.
+            const severity = seq.count > 6 ? "critical" : "ok";
+            sequences.push({
               startDate: seq.startDate,
               endDate: seq.endDate,
               count: seq.count,
               showIds: seq.showIds,
-              severity 
+              severity
             });
             maxConsecutive = Math.max(maxConsecutive, seq.count);
           }
           currentSequence = null;
         }
       }
-      
-      lastShowDate = showDate;
+
+      lastShowDateStr = show.date;
     });
     
     // Handle final sequence
     if (currentSequence && (currentSequence as any).count >= 3) {
       const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
-      const severity = seq.count >= 6 ? "critical" : "ok";
+      // 6 consecutive shows is LEGAL; only 7+ is a burnout violation.
+      const severity = seq.count > 6 ? "critical" : "ok";
       sequences.push({ 
         startDate: seq.startDate,
         endDate: seq.endDate,

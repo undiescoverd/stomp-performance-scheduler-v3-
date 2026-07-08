@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle, Users, TrendingUp } from 'lucide-react';
 import type { Show, Assignment, CastMember } from '~backend/scheduler/types';
+import { areDatesConsecutive } from '~backend/scheduler/date_rules';
 
 interface ScheduleAnalyticsProps {
   shows: Show[];
@@ -43,31 +44,50 @@ export function ScheduleAnalytics({ shows, assignments, castMembers }: ScheduleA
     return counts;
   };
 
-  // Check for consecutive shows
+  // Check for consecutive shows.
+  //
+  // A consecutive run is counted by DATE, not by array order: shows on the same
+  // date (matinee + evening) both count toward the run, and any calendar day
+  // with zero performed shows resets it. Only 7+ is a burnout concern — 6 is
+  // legal. Mirrors the backend §0 consecutive-shows rule (see date_rules.ts).
   const getConsecutiveWarnings = (): { performer: string; count: number }[] => {
     const warnings: { performer: string; count: number }[] = [];
-    
+
+    // Map showId -> date, for actual show-days only.
+    const showDateById = new Map<string, string>();
+    shows.forEach(show => {
+      if (show.status === 'show') {
+        showDateById.set(show.id, show.date);
+      }
+    });
+
     castMembers.forEach(member => {
-      const memberShows = new Set<string>();
+      // Count this performer's performed shows per date (OFF slots excluded).
+      const showsPerDate = new Map<string, number>();
       assignments.forEach(assignment => {
-        if (assignment.performer === member.name) {
-          memberShows.add(assignment.showId);
-        }
+        if (assignment.performer !== member.name || assignment.role === 'OFF') return;
+        const date = showDateById.get(assignment.showId);
+        if (!date) return;
+        showsPerDate.set(date, (showsPerDate.get(date) ?? 0) + 1);
       });
 
+      const dates = Array.from(showsPerDate.keys()).sort();
       let maxConsecutive = 0;
-      let currentConsecutive = 0;
+      let currentRun = 0;
+      let prevDate: string | null = null;
 
-      for (const show of shows) {
-        if (memberShows.has(show.id)) {
-          currentConsecutive++;
-          maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+      for (const date of dates) {
+        const showsOnDate = showsPerDate.get(date)!;
+        if (prevDate && areDatesConsecutive(prevDate, date)) {
+          currentRun += showsOnDate;
         } else {
-          currentConsecutive = 0;
+          currentRun = showsOnDate;
         }
+        maxConsecutive = Math.max(maxConsecutive, currentRun);
+        prevDate = date;
       }
 
-      if (maxConsecutive >= 6) {
+      if (maxConsecutive > 6) {
         warnings.push({ performer: member.name, count: maxConsecutive });
       }
     });
@@ -154,7 +174,7 @@ export function ScheduleAnalytics({ shows, assignments, castMembers }: ScheduleA
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            <strong>Consecutive Show Warnings:</strong> The following performers have 6+ consecutive shows, which may lead to burnout:
+            <strong>Consecutive Show Warnings:</strong> The following performers have more than 6 consecutive shows, which may lead to burnout:
             <div className="mt-2 space-x-2">
               {consecutiveWarnings.map(warning => (
                 <Badge key={warning.performer} variant="destructive">

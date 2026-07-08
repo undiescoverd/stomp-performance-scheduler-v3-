@@ -1,4 +1,5 @@
 import { Role, Show, Assignment, CastMember, FEMALE_ONLY_ROLES } from "./types";
+import { areDatesConsecutive } from "./date_rules";
 
 export interface AutoGenerateResult {
   success: boolean;
@@ -1307,13 +1308,13 @@ export class SchedulingAlgorithm {
     data.sequences = sequences;
   }
 
-  // Optimized check for consecutive shows
+  // Two shows count toward the same consecutive run only when they are on the
+  // same calendar date (a matinee + evening double) or on directly adjacent
+  // dates. Any calendar day with zero shows resets the run. Compares DATES ONLY
+  // (never times) via the shared helper — see date_rules.ts.
   private areShowsConsecutive(show1: Show, show2: Show): boolean {
     try {
-      const date1 = new Date(`${show1.date}T${show1.time}`);
-      const date2 = new Date(`${show2.date}T${show2.time}`);
-      const daysDiff = Math.floor((date2.getTime() - date1.getTime()) / (1000 * 60 * 60 * 24));
-      return daysDiff <= 2; // Allow up to 2 days gap
+      return areDatesConsecutive(show1.date, show2.date);
     } catch (error) {
       return false;
     }
