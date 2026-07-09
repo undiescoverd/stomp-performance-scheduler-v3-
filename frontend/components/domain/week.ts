@@ -94,31 +94,115 @@ export function timeIsFree(shows: Show[], showId: string, time: string): boolean
   return !showsOnDate(shows, isoDate(target.date)).some((s) => s.id !== showId && s.time === time);
 }
 
+/**
+ * One column of the grid. A date the week has emptied out still gets a column,
+ * with no show in it, so the week always reads as a whole and the day can be
+ * put back where it was.
+ */
+export interface Column {
+  date: string;
+  show: Show | null;
+}
+
+/** The Monday on or before a date. */
+export function mondayOf(date: string): string {
+  const d = new Date(`${isoDate(date)}T00:00:00Z`);
+  const dow = d.getUTCDay(); // Sunday = 0
+  return addDaysIso(isoDate(date), -(dow === 0 ? 6 : dow - 1));
+}
+
+/**
+ * The week's Monday, taken from the *earliest* show.
+ *
+ * Not `shows[0]`: nothing keeps the array sorted once days are reshaped or
+ * re-timed, and an unsorted first element would slide the whole frame by a day.
+ */
+export function weekStartOf(shows: Show[]): string | null {
+  const dates = shows.map((s) => isoDate(s.date)).filter(Boolean).sort();
+  return dates.length ? mondayOf(dates[0]) : null;
+}
+
+/**
+ * Every date the grid shows: Monday through Sunday, extended if a show sits
+ * past Sunday so `nextShow` growing the week can never hide a column.
+ */
+export function weekFrame(shows: Show[], weekStart: string): string[] {
+  const last = shows.map((s) => isoDate(s.date)).filter(Boolean).sort().pop();
+  const dates: string[] = [];
+  for (let i = 0; i < 7 || (last && dates[dates.length - 1] < last); i++) {
+    dates.push(addDaysIso(weekStart, i));
+    if (i > 60) break; // a malformed date can't spin this forever
+  }
+  return dates;
+}
+
+/** Columns in grid order: a date's shows, or one empty column if it has none. */
+export function columnsForWeek(shows: Show[], weekStart: string): Column[] {
+  const ordered = sortShows(shows);
+  return weekFrame(shows, weekStart).flatMap<Column>((date) => {
+    const onDate = showsOnDate(ordered, date);
+    return onDate.length ? onDate.map((show) => ({ date, show })) : [{ date, show: null }];
+  });
+}
+
 /** A run of consecutive columns sharing one city. */
 export interface CitySegment {
   city: string;
   span: number;
 }
 
-/** A column's city: its own, else the schedule's. */
+/** A show's city: its own, else the schedule's. */
 export function cityOf(show: Show, fallback: string): string {
   return (show.location ?? "").trim() || fallback;
 }
 
 /**
- * Consecutive columns grouped by city, in column order. A single-city week
- * yields one segment spanning everything; the divider between segments is what
- * marks a mid-week move.
+ * The city of each column, in order.
+ *
+ * A column holding a show has that show's city, or the schedule's when it names
+ * none. Only an *empty* column borrows, and it borrows from the day *after* it:
+ * a removed day is never a travel day, and the travel day is what marks the
+ * boundary, so filling backwards keeps an emptied day on the correct side of the
+ * divider. Filling forwards drags it across. Trailing empty columns fall back to
+ * the last city seen.
  */
-export function citySegments(shows: Show[], fallback: string): CitySegment[] {
+export function resolveCities(columns: Column[], fallback: string): string[] {
+  const filled: (string | null)[] = columns.map((c) =>
+    c.show ? (c.show.location ?? "").trim() || fallback : null,
+  );
+
+  for (let i = filled.length - 2; i >= 0; i--) filled[i] ??= filled[i + 1];
+  for (let i = 1; i < filled.length; i++) filled[i] ??= filled[i - 1];
+
+  return filled.map((city) => city ?? fallback);
+}
+
+/**
+ * Consecutive columns grouped by city. A single-city week yields one segment
+ * spanning everything; the divider between segments is what marks a mid-week move.
+ */
+export function citySegments(columns: Column[], fallback: string): CitySegment[] {
   const segments: CitySegment[] = [];
-  for (const show of shows) {
-    const city = cityOf(show, fallback);
+  for (const city of resolveCities(columns, fallback)) {
     const last = segments[segments.length - 1];
     if (last && last.city === city) last.span += 1;
     else segments.push({ city, span: 1 });
   }
   return segments;
+}
+
+/**
+ * Put an emptied date back. Prefers the slot the week had there when it opened,
+ * so restoring a removed Saturday matinee brings back the matinee, and a removed
+ * travel day comes back as a travel day.
+ */
+export function restoreDate(baseline: Show[], date: string): Omit<Show, "id"> {
+  const wanted = showsOnDate(baseline, date)[0];
+  if (wanted) {
+    const { id: _id, ...rest } = wanted;
+    return { ...rest, date };
+  }
+  return { date, status: "show", ...getDefaultShowTimes(date, 0) };
 }
 
 /**

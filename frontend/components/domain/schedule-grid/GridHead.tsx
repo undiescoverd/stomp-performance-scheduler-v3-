@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { Show, DayStatus } from "~backend/scheduler/types";
 import { shortDate, dowShort, fmtTime, isoDate } from "../format";
-import { cityOf, citySegments, showsOnDate } from "../week";
+import { citySegments, resolveCities, type Column } from "../week";
 import { DayEditor } from "./DayEditor";
 
 /** "remove" isn't a status — it drops the column out of the week entirely. */
 type StatusChoice = DayStatus | "remove";
 
 interface GridHeadProps {
-  shows: Show[];
+  columns: Column[];
   assignedShowIds: Set<string>;
   /** The schedule's own city, used by any column that doesn't name one. */
   location: string;
@@ -17,11 +17,14 @@ interface GridHeadProps {
   onRemove: (showId: string) => void;
   onShowChange: (showId: string, field: "time" | "callTime", value: string) => boolean;
   onAddShowToDate: (date: string) => void;
+  onRestoreDate: (date: string) => void;
   onSetDestination: (travelShowId: string, city: string) => void;
 }
 
+const columnKey = (column: Column) => column.show?.id ?? `empty-${column.date}`;
+
 export function GridHead({
-  shows,
+  columns,
   assignedShowIds,
   location,
   week,
@@ -29,16 +32,17 @@ export function GridHead({
   onRemove,
   onShowChange,
   onAddShowToDate,
+  onRestoreDate,
   onSetDestination,
 }: GridHeadProps) {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const anchors = useRef(new Map<string, HTMLElement>());
 
-  // The popover is positioned from a viewport rect, so any scroll or resize
-  // would leave it stranded beside its column.
+  // The editor is positioned from a viewport rect, so a scroll or resize would
+  // leave it stranded beside its column.
   useEffect(() => {
-    if (!openId) return;
-    const close = () => setOpenId(null);
+    if (!openKey) return;
+    const close = () => setOpenKey(null);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
     window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
@@ -48,37 +52,24 @@ export function GridHead({
       window.removeEventListener("resize", close);
       window.removeEventListener("keydown", onKey);
     };
-  }, [openId]);
+  }, [openKey]);
 
-  const choose = (show: Show, next: StatusChoice, el: HTMLSelectElement) => {
-    const revert = () => {
-      el.value = show.status;
-    };
-
+  // No confirm() here: every shaping edit is snapshotted and Undo brings the
+  // cast back. Destroying work behind a modal is worse than letting it be undone.
+  const choose = (show: Show, next: StatusChoice) => {
     if (next === show.status) return;
-
-    if (next === "remove") {
-      const day = `${dowShort(show.date)} ${shortDate(show.date)}`;
-      if (confirm(`Remove ${day} from the schedule? The day and any cast on it are discarded.`)) {
-        setOpenId(null);
-        onRemove(show.id);
-      } else {
-        revert();
-      }
-      return;
-    }
-
-    const losesCast = show.status === "show" && assignedShowIds.has(show.id);
-    if (losesCast && !confirm("This clears the cast assignments for this day. Continue?")) {
-      revert();
-      return;
-    }
-
-    onStatusChange(show.id, next);
+    setOpenKey(null);
+    if (next === "remove") onRemove(show.id);
+    else onStatusChange(show.id, next);
   };
 
-  const segments = citySegments(shows, location);
-  const openShow = shows.find((s) => s.id === openId) ?? null;
+  const cities = resolveCities(columns, location);
+  const segments = citySegments(columns, location);
+  const openIndex = columns.findIndex((c) => columnKey(c) === openKey);
+  const openColumn = openIndex >= 0 ? columns[openIndex] : null;
+
+  const showsOnDate = (date: string) =>
+    columns.filter((c) => c.date === date && c.show?.status === "show").length;
 
   return (
     <thead>
@@ -96,29 +87,30 @@ export function GridHead({
 
       <tr>
         <th className="row-label">Date</th>
-        {shows.map((s) => {
-          const label = `${dowShort(s.date)} ${shortDate(s.date)}`;
+        {columns.map((column) => {
+          const key = columnKey(column);
+          const label = `${dowShort(column.date)} ${shortDate(column.date)}`;
           return (
             <th
-              key={s.id}
+              key={key}
               ref={(el) => {
-                if (el) anchors.current.set(s.id, el);
-                else anchors.current.delete(s.id);
+                if (el) anchors.current.set(key, el);
+                else anchors.current.delete(key);
               }}
             >
               <button
                 type="button"
-                className={`day-head${openId === s.id ? " is-open" : ""}`}
+                className={`day-head${openKey === key ? " is-open" : ""}${column.show ? "" : " is-empty"}`}
                 aria-label={`Edit ${label}`}
-                aria-expanded={openId === s.id}
-                onClick={() => setOpenId((cur) => (cur === s.id ? null : s.id))}
+                aria-expanded={openKey === key}
+                onClick={() => setOpenKey((cur) => (cur === key ? null : key))}
               >
-                <div className="show-day">{dowShort(s.date)}</div>
-                <div className="show-date">{shortDate(s.date)}</div>
-                {s.status === "show" ? (
+                <div className="show-day">{dowShort(column.date)}</div>
+                <div className="show-date">{shortDate(column.date)}</div>
+                {column.show?.status === "show" ? (
                   <>
-                    <div className="show-time">{fmtTime(s.time)}</div>
-                    <div className="show-call">call {fmtTime(s.callTime)}</div>
+                    <div className="show-time">{fmtTime(column.show.time)}</div>
+                    <div className="show-call">call {fmtTime(column.show.callTime)}</div>
                   </>
                 ) : null}
               </button>
@@ -129,45 +121,51 @@ export function GridHead({
 
       <tr>
         <th className="row-label">Status</th>
-        {shows.map((s) => (
-          <th key={s.id}>
-            <select
-              className={`status-select is-${s.status}`}
-              value={s.status}
-              aria-label={`Status for ${dowShort(s.date)} ${shortDate(s.date)}`}
-              onChange={(e) => choose(s, e.target.value as StatusChoice, e.currentTarget)}
-            >
-              <option value="show">Show</option>
-              <option value="travel">Travel Day</option>
-              <option value="dayoff">Day Off</option>
-              <option value="remove">Remove Day…</option>
-            </select>
-          </th>
-        ))}
+        {columns.map((column) => {
+          const key = columnKey(column);
+          if (!column.show) {
+            return (
+              <th key={key}>
+                <button type="button" className="status-restore" onClick={() => onRestoreDate(column.date)}>
+                  Restore
+                </button>
+              </th>
+            );
+          }
+          const show = column.show;
+          return (
+            <th key={key}>
+              <select
+                className={`status-select is-${show.status}`}
+                value={show.status}
+                aria-label={`Status for ${dowShort(show.date)} ${shortDate(show.date)}`}
+                onChange={(e) => choose(show, e.target.value as StatusChoice)}
+              >
+                <option value="show">Show</option>
+                <option value="travel">Travel Day</option>
+                <option value="dayoff">Day Off</option>
+                <option value="remove">Remove Day…</option>
+              </select>
+            </th>
+          );
+        })}
       </tr>
 
-      {openShow ? (
+      {openColumn ? (
         <DayEditor
-          show={openShow}
-          anchor={anchors.current.get(openShow.id) ?? null}
-          city={cityOf(openShow, location)}
-          destination={destinationAfter(shows, openShow, location)}
-          canAddShow={showsOnDate(shows, isoDate(openShow.date)).filter((s) => s.status === "show").length === 1}
-          onClose={() => setOpenId(null)}
+          date={openColumn.date}
+          show={openColumn.show}
+          anchor={anchors.current.get(openKey!) ?? null}
+          city={cities[openIndex] ?? location}
+          destination={cities[openIndex + 1] ?? ""}
+          canAddShow={showsOnDate(isoDate(openColumn.date)) === 1}
+          onClose={() => setOpenKey(null)}
           onShowChange={onShowChange}
           onAddShowToDate={onAddShowToDate}
+          onRestoreDate={onRestoreDate}
           onSetDestination={onSetDestination}
         />
       ) : null}
     </thead>
   );
-}
-
-/**
- * Where a travel day is heading: the city of the column after it. The travel day
- * keeps the city it's leaving, so its own `location` never holds the destination.
- */
-function destinationAfter(shows: Show[], travel: Show, fallback: string): string {
-  const next = shows[shows.findIndex((s) => s.id === travel.id) + 1];
-  return next ? cityOf(next, fallback) : "";
 }

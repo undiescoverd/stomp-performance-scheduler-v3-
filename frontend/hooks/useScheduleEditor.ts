@@ -9,9 +9,11 @@ import {
   addShowToDate,
   nextShow,
   resetShowTimes,
+  restoreDate,
   setDestination,
   sortShows,
   timeIsFree,
+  weekStartOf,
 } from '@/components/domain/week';
 
 export function useScheduleEditor(id?: string) {
@@ -30,6 +32,18 @@ export function useScheduleEditor(id?: string) {
    * the standard week: a tour week that arrives Mon-Sat restores as Mon-Sat.
    */
   const baselineShows = useRef<Show[]>([]);
+
+  /**
+   * Shaping history, newest last. Every edit that can destroy work snapshots
+   * shows *and* assignments first, so Undo restores the cast a status change
+   * cleared. This is what lets the confirm() dialogs go: destroying work behind
+   * a modal is worse than letting it be undone. Safe because saves are explicit
+   * (`handleSave` is the only caller of the mutations), so an unsaved edit can
+   * never outlive the history.
+   */
+  const history = useRef<Array<{ shows: Show[]; assignments: Assignment[] }>>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const HISTORY_LIMIT = 50;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -267,17 +281,11 @@ export function useScheduleEditor(id?: string) {
       baselineShows.current = loaded;
       setAssignments(schedule.assignments);
 
-      // Calculate week start date from first show (guard against malformed
-      // dates so a bad schedule can't crash the editor).
-      if (schedule.shows.length > 0) {
-        const firstShowDate = new Date(isoDate(schedule.shows[0].date));
-        if (!Number.isNaN(firstShowDate.getTime())) {
-          const dayOfWeek = firstShowDate.getDay();
-          const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = 0, so 6 days from Monday
-          const mondayDate = new Date(firstShowDate.getTime() - daysFromMonday * 24 * 60 * 60 * 1000);
-          setWeekStartDate(formatDateForInput(mondayDate));
-        }
-      }
+      // The week's Monday comes from the *earliest* show, not shows[0]: nothing
+      // keeps the array sorted once days are reshaped, and an unsorted first
+      // element would slide the seven-day frame by a day.
+      const start = weekStartOf(loaded);
+      if (start) setWeekStartDate(start);
     }
   }, [scheduleData]);
 
@@ -349,6 +357,7 @@ export function useScheduleEditor(id?: string) {
       return;
     }
 
+    snapshot();
     setIsGenerating(true);
     try {
       await autoGenerateMutation.mutateAsync(shows);
@@ -358,13 +367,12 @@ export function useScheduleEditor(id?: string) {
   };
 
   const handleClearAll = () => {
-    if (confirm('Are you sure you want to clear all assignments?')) {
-      setAssignments([]);
-      toast({
-        title: "Cleared",
-        description: "All assignments have been cleared"
-      });
-    }
+    snapshot();
+    setAssignments([]);
+    toast({
+      title: 'Cleared',
+      description: 'All assignments have been cleared. Undo to bring them back.',
+    });
   };
 
   const handleAssignmentChange = (showId: string, role: Role, performer: string) => {
@@ -436,17 +444,34 @@ export function useScheduleEditor(id?: string) {
   };
 
   const handleShowStatusChange = (showId: string, status: DayStatus) => {
+    snapshot();
     setShows(prev => prev.map(show =>
       show.id === showId ? { ...show, status } : show
     ));
 
-    // Clear assignments for this show if it's no longer a show day
+    // Clear assignments for this show if it's no longer a show day. Undo brings
+    // them back, which is why no confirm() guards this.
     if (status !== 'show') {
       setAssignments(prev => prev.filter(a => a.showId !== showId));
     }
   };
 
   const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+  /** Record the week before an edit that could destroy work. */
+  const snapshot = () => {
+    history.current.push({ shows, assignments });
+    if (history.current.length > HISTORY_LIMIT) history.current.shift();
+    setCanUndo(true);
+  };
+
+  const handleUndo = () => {
+    const previous = history.current.pop();
+    if (!previous) return;
+    setShows(previous.shows);
+    setAssignments(previous.assignments);
+    setCanUndo(history.current.length > 0);
+  };
 
   /**
    * Edit a show's date or times. Never touches `show.id`: assignments reference
@@ -458,6 +483,7 @@ export function useScheduleEditor(id?: string) {
     if (!value) return false;
     if (field === 'time' && !timeIsFree(shows, showId, value)) return false;
 
+    snapshot();
     setShows(prev => sortShows(prev.map(show =>
       show.id === showId ? { ...show, [field]: value } : show
     )));
@@ -468,28 +494,53 @@ export function useScheduleEditor(id?: string) {
   const handleAddShowToDate = (date: string) => {
     const slot = addShowToDate(shows, date);
     if (!slot) return;
+    snapshot();
     setShows(prev => sortShows([...prev, { ...slot, id: generateId() }]));
+  };
+
+  /** Put an emptied day back, preferring the slot the week opened with. */
+  const handleRestoreDate = (date: string) => {
+    snapshot();
+    setShows(prev => sortShows([...prev, { ...restoreDate(baselineShows.current, date), id: generateId() }]));
   };
 
   /** Point a travel day at the city the company is moving to. */
   const handleSetDestination = (travelShowId: string, city: string) => {
+    snapshot();
     setShows(prev => setDestination(prev, travelShowId, city.trim()));
   };
 
   /** Undo for Remove Day: restore the next slot the week is missing. See `nextShow`. */
   const handleAddShow = () => {
     const slot = nextShow(baselineShows.current, shows);
+    snapshot();
     setShows(prev => sortShows([...prev, { ...slot, id: generateId() }]));
   };
 
-  // Confirmation lives with the control in GridHead, not here.
+  /**
+   * The last show anchors the week: `weekStartOf` derives the frame's Monday from
+   * it, and `handleSave` refuses a schedule with none. Removing it is rejected
+   * rather than silently leaving an editor with no week.
+   */
   const handleRemoveShow = (showId: string) => {
+    if (shows.length <= 1) {
+      toast({
+        title: "Can't remove the last day",
+        description: 'A schedule needs at least one show, travel day or day off.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    snapshot();
     setShows(prev => prev.filter(show => show.id !== showId));
     setAssignments(prev => prev.filter(a => a.showId !== showId));
   };
 
   /** Resets times only; travel and day-off columns keep their status. */
-  const handleResetShowTimes = () => setShows(resetShowTimes);
+  const handleResetShowTimes = () => {
+    snapshot();
+    setShows(resetShowTimes);
+  };
 
   // Handle assignment updates from the grid (for RED day toggles)
   const handleAssignmentUpdate = (updatedAssignments: Assignment[]) => {
@@ -522,9 +573,12 @@ export function useScheduleEditor(id?: string) {
     handleShowStatusChange,
     handleShowChange,
     handleAddShowToDate,
+    handleRestoreDate,
     handleSetDestination,
     handleAddShow,
     handleRemoveShow,
+    canUndo,
+    handleUndo,
     handleResetShowTimes,
     handleAssignmentUpdate,
   };

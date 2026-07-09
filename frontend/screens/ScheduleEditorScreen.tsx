@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Download, Plus, Save, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Plus, Save, Undo2, Wand2 } from "lucide-react";
 import { useScheduleEditor } from "@/hooks/useScheduleEditor";
 import { useScheduleValidation } from "@/hooks/useScheduleValidation";
 import { ScheduleGrid } from "@/components/domain/schedule-grid/ScheduleGrid";
@@ -33,6 +33,20 @@ export function ScheduleEditorScreen() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor.shows, editor.assignments]);
+
+  // Cmd/Ctrl+Z undoes the last shaping edit. Ignored while a field has focus so
+  // it doesn't fight the browser's own undo inside a time or city input.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z" || e.shiftKey) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      editor.handleUndo();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editor.handleUndo]);
 
   const handleExport = () => {
     if (!castMembers.length) {
@@ -102,6 +116,14 @@ export function ScheduleEditorScreen() {
           <button className="btn btn-ghost btn-sm" onClick={editor.handleAddShow}>
             <Plus /> Add Show
           </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={editor.handleUndo}
+            disabled={!editor.canUndo}
+            title="Undo the last change to the week (Cmd/Ctrl+Z)"
+          >
+            <Undo2 /> Undo
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={editor.handleClearAll}>
             Clear All
           </button>
@@ -128,6 +150,7 @@ export function ScheduleEditorScreen() {
           onRemoveShow={editor.handleRemoveShow}
           onShowChange={editor.handleShowChange}
           onAddShowToDate={editor.handleAddShowToDate}
+          onRestoreDate={editor.handleRestoreDate}
           onSetDestination={editor.handleSetDestination}
         />
       </div>

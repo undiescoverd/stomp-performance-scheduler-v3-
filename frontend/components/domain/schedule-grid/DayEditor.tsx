@@ -4,7 +4,9 @@ import type { Show } from "~backend/scheduler/types";
 import { dowShort, isoDate, shortDate } from "../format";
 
 interface DayEditorProps {
-  show: Show;
+  date: string;
+  /** Null when the week has emptied this date out. */
+  show: Show | null;
   /** The column header this popover hangs under. */
   anchor: HTMLElement | null;
   /** The city this column belongs to. */
@@ -15,6 +17,7 @@ interface DayEditorProps {
   onClose: () => void;
   onShowChange: (showId: string, field: "time" | "callTime", value: string) => boolean;
   onAddShowToDate: (date: string) => void;
+  onRestoreDate: (date: string) => void;
   onSetDestination: (travelShowId: string, city: string) => void;
 }
 
@@ -28,6 +31,7 @@ const POPOVER_WIDTH = 244;
  * cell measures from the table rather than from any positioned ancestor.
  */
 export function DayEditor({
+  date,
   show,
   anchor,
   city,
@@ -36,6 +40,7 @@ export function DayEditor({
   onClose,
   onShowChange,
   onAddShowToDate,
+  onRestoreDate,
   onSetDestination,
 }: DayEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -47,7 +52,7 @@ export function DayEditor({
     const rect = anchor.getBoundingClientRect();
     const maxLeft = window.innerWidth - POPOVER_WIDTH - GUTTER;
     setPos({ top: rect.bottom + 4, left: Math.max(GUTTER, Math.min(rect.left, maxLeft)) });
-  }, [anchor, show.id]);
+  }, [anchor, show?.id, date]);
 
   useEffect(() => {
     const onPointerDown = (e: MouseEvent) => {
@@ -62,9 +67,10 @@ export function DayEditor({
 
   if (!pos) return null;
 
-  const dayLabel = `${dowShort(show.date)} ${shortDate(show.date)}`;
+  const dayLabel = `${dowShort(date)} ${shortDate(date)}`;
 
   const changeTime = (field: "time" | "callTime", value: string) => {
+    if (!show) return;
     const accepted = onShowChange(show.id, field, value);
     if (field === "time") setRejected(!accepted);
   };
@@ -76,7 +82,18 @@ export function DayEditor({
         <span className="day-editor-city">{city}</span>
       </header>
 
-      {show.status === "show" ? (
+      {!show ? (
+        <>
+          <p className="day-editor-note">
+            No show on this day. It keeps its column so the week still reads as a whole.
+          </p>
+          <button type="button" className="day-editor-action" onClick={() => onRestoreDate(isoDate(date))}>
+            Restore this day
+          </button>
+        </>
+      ) : null}
+
+      {show?.status === "show" ? (
         <>
           <div className="day-editor-times">
             <label>
@@ -109,7 +126,7 @@ export function DayEditor({
         </>
       ) : null}
 
-      {show.status === "travel" ? (
+      {show?.status === "travel" ? (
         <>
           <label className="day-editor-field">
             Travel to
@@ -129,7 +146,7 @@ export function DayEditor({
         </>
       ) : null}
 
-      {show.status === "dayoff" ? <p className="day-editor-note">No shows. The company is dark.</p> : null}
+      {show?.status === "dayoff" ? <p className="day-editor-note">No shows. The company is dark.</p> : null}
     </div>,
     document.body,
   );

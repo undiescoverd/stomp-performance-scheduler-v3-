@@ -3,8 +3,10 @@ import type { Show, Assignment, CastMember, Role } from "~backend/scheduler/type
 import { GridHead } from "./GridHead";
 import { AssignmentCell } from "./AssignmentCell";
 import { SpecialDayCell } from "./SpecialDayCell";
+import { EmptyDayCell } from "./EmptyDayCell";
 import { assignedPerformer, showConflicts, offPerformers, isRedDayFor } from "./logic";
 import { isoDate, splitLocation } from "../format";
+import { columnsForWeek, weekStartOf } from "../week";
 
 interface ScheduleGridProps {
   shows: Show[];
@@ -19,6 +21,7 @@ interface ScheduleGridProps {
   onRemoveShow: (showId: string) => void;
   onShowChange: (showId: string, field: "time" | "callTime", value: string) => boolean;
   onAddShowToDate: (date: string) => void;
+  onRestoreDate: (date: string) => void;
   onSetDestination: (travelShowId: string, city: string) => void;
 }
 
@@ -35,6 +38,7 @@ export function ScheduleGrid({
   onRemoveShow,
   onShowChange,
   onAddShowToDate,
+  onRestoreDate,
   onSetDestination,
 }: ScheduleGridProps) {
   const showShows = shows.filter((s) => s.status === "show");
@@ -46,8 +50,13 @@ export function ScheduleGrid({
     : 0;
   const city = splitLocation(location)[0] || "—";
 
-  // A travel / day-off column is one merged cell over the whole body: every role
-  // row, plus the divider and OFF rows when they're showing.
+  // Columns, not shows: a date the week has emptied out still gets one, so the
+  // week always reads Monday to Sunday and a removed day can be put back.
+  const weekStart = weekStartOf(shows);
+  const columns = weekStart ? columnsForWeek(shows, weekStart) : [];
+
+  // A travel, day-off or empty column is one merged cell over the whole body:
+  // every role row, plus the divider and OFF rows when they're showing.
   const hasOffRows = hasAssignments && maxOff > 0;
   const specialRowSpan = roles.length + (hasOffRows ? 1 + maxOff : 0);
 
@@ -59,12 +68,12 @@ export function ScheduleGrid({
               auto layout a wide spanning cell distorts the columns beneath it. */}
           <colgroup>
             <col className="col-label" />
-            {shows.map((s) => (
-              <col key={s.id} />
+            {columns.map((c) => (
+              <col key={c.show?.id ?? `empty-${c.date}`} />
             ))}
           </colgroup>
           <GridHead
-            shows={shows}
+            columns={columns}
             assignedShowIds={assignedShowIds}
             location={city}
             week={week}
@@ -72,13 +81,14 @@ export function ScheduleGrid({
             onRemove={onRemoveShow}
             onShowChange={onShowChange}
             onAddShowToDate={onAddShowToDate}
+            onRestoreDate={onRestoreDate}
             onSetDestination={onSetDestination}
           />
           <tbody>
             <tr className="grid-divider">
               <td />
-              {shows.map((s) => (
-                <td key={s.id} />
+              {columns.map((c) => (
+                <td key={c.show?.id ?? `empty-${c.date}`} />
               ))}
             </tr>
 
@@ -90,18 +100,25 @@ export function ScheduleGrid({
                     {role}
                     <span className="role-elig">{elig.length} eligible</span>
                   </td>
-                  {shows.map((show) => {
-                    if (show.status !== "show") {
-                      // The merged cell is emitted once and spans the rows below.
+                  {columns.map((column) => {
+                    const key = column.show?.id ?? `empty-${column.date}`;
+
+                    // The merged cell is emitted once and spans the rows below.
+                    if (!column.show) {
+                      return rowIndex === 0 ? <EmptyDayCell key={key} rowSpan={specialRowSpan} /> : null;
+                    }
+                    if (column.show.status !== "show") {
                       return rowIndex === 0 ? (
-                        <SpecialDayCell key={show.id} status={show.status} rowSpan={specialRowSpan} />
+                        <SpecialDayCell key={key} status={column.show.status} rowSpan={specialRowSpan} />
                       ) : null;
                     }
+
+                    const show = column.show;
                     const cur = assignedPerformer(assignments, show.id, role);
                     const isConf = !!cur && conflictsByShow.get(show.id)!.has(cur);
                     return (
                       <AssignmentCell
-                        key={show.id}
+                        key={key}
                         showId={show.id}
                         role={role}
                         eligible={elig}
@@ -119,13 +136,14 @@ export function ScheduleGrid({
               <>
                 <tr className="grid-divider">
                   <td />
-                  {shows.map((s) => (s.status === "show" ? <td key={s.id} /> : null))}
+                  {columns.map((c) => (c.show?.status === "show" ? <td key={c.show.id} /> : null))}
                 </tr>
                 {Array.from({ length: maxOff }).map((_, i) => (
                   <tr key={`off-${i}`}>
                     <td className="off-label">{i === 0 ? "OFF" : ""}</td>
-                    {shows.map((show) => {
-                      if (show.status !== "show") return null;
+                    {columns.map((column) => {
+                      const show = column.show;
+                      if (show?.status !== "show") return null;
                       const offs = offPerformers(assignments, castMembers, show.id);
                       const p = offs[i];
                       if (!p) return <td key={show.id} className="off-cell" />;

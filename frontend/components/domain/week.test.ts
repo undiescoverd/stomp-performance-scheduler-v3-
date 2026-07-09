@@ -3,13 +3,17 @@ import {
   addDaysIso,
   addShowToDate,
   citySegments,
+  columnsForWeek,
   getDefaultShowTimes,
   nextShow,
   resetShowTimes,
+  restoreDate,
   setDestination,
   showsOnDate,
   sortShows,
   timeIsFree,
+  weekFrame,
+  weekStartOf,
 } from "./week";
 import type { Show } from "~backend/scheduler/types";
 
@@ -262,30 +266,124 @@ describe("timeIsFree", () => {
   });
 });
 
+/** The columns the grid would render for a week, frame and all. */
+const cols = (shows: Show[]) => columnsForWeek(shows, weekStartOf(shows)!);
+
+describe("weekStartOf", () => {
+  it("snaps the earliest show back to its Monday", () => {
+    expect(weekStartOf(standardWeek())).toBe("2025-07-14");
+  });
+
+  it("uses the earliest date, not the first element", () => {
+    const jumbled = [show("2025-07-19", "20:00"), show("2025-07-15", "20:00")];
+    expect(weekStartOf(jumbled)).toBe("2025-07-14");
+  });
+
+  it("treats a Sunday as the end of its week, not the start", () => {
+    expect(weekStartOf([show("2025-07-20", "20:00")])).toBe("2025-07-14");
+  });
+
+  it("has no week without shows", () => {
+    expect(weekStartOf([])).toBeNull();
+  });
+});
+
+describe("weekFrame / columnsForWeek", () => {
+  it("always shows seven days", () => {
+    expect(weekFrame(standardWeek(), "2025-07-14")).toHaveLength(7);
+  });
+
+  it("keeps an empty column for a day with no shows", () => {
+    const week = standardWeek(); // Tue-Sun, so Monday is empty
+    const columns = cols(week);
+    expect(columns).toHaveLength(9); // 8 shows + the empty Monday
+    expect(columns[0]).toEqual({ date: "2025-07-14", show: null });
+  });
+
+  it("gives a double-show day two columns", () => {
+    const sat = cols(standardWeek()).filter((c) => c.date === "2025-07-19");
+    expect(sat).toHaveLength(2);
+  });
+
+  it("extends past Sunday rather than hiding a show", () => {
+    const week = [...standardWeek(), show("2025-07-21", "20:00")]; // the next Monday
+    expect(weekFrame(week, "2025-07-14")).toContain("2025-07-21");
+  });
+});
+
 describe("citySegments", () => {
   it("spans the whole week when no column names a city", () => {
-    expect(citySegments(standardWeek(), "London")).toEqual([{ city: "London", span: 8 }]);
+    expect(citySegments(cols(standardWeek()), "London")).toEqual([{ city: "London", span: 9 }]);
   });
 
   it("falls back to the schedule's city for columns without one", () => {
     const week = [show("2025-07-17", "20:00"), located(show("2025-07-18", "20:00"), "Leeds")];
-    expect(citySegments(week, "London")).toEqual([
-      { city: "London", span: 1 },
-      { city: "Leeds", span: 1 },
-    ]);
+    const segments = citySegments(cols(week), "London");
+    // Mon-Wed are empty and fill backwards from Thursday, which has no city.
+    expect(segments.map((s) => s.city)).toEqual(["London", "Leeds"]);
+    expect(segments.at(-1)).toEqual({ city: "Leeds", span: 3 }); // Fri + empty Sat + empty Sun
   });
 
   it("puts the divider immediately after the travel day being left", () => {
     // Toulouse covers Mon travel + both Tue shows + Wed travel = 4 columns.
-    expect(citySegments(splitWeek(), "—")).toEqual([
+    expect(citySegments(cols(splitWeek()), "-")).toEqual([
       { city: "Toulouse", span: 4 },
-      { city: "Merignac", span: 3 },
+      { city: "Merignac", span: 5 },
     ]);
   });
 
   it("treats a blank location as absent rather than as its own segment", () => {
     const week = [located(show("2025-07-17", "20:00"), "   "), show("2025-07-18", "20:00")];
-    expect(citySegments(week, "London")).toEqual([{ city: "London", span: 2 }]);
+    expect(citySegments(cols(week), "London")).toEqual([{ city: "London", span: 7 }]);
+  });
+});
+
+describe("resolveCities: an emptied day keeps its side of the divider", () => {
+  const withoutDate = (week: Show[], date: string) => week.filter((s) => s.date !== date);
+
+  it("keeps a removed day in the city that follows it", () => {
+    // Thursday belongs to Merignac. Removing it must not drag it into Toulouse.
+    const week = withoutDate(splitWeek(), "2025-07-17");
+    expect(citySegments(cols(week), "-")).toEqual([
+      { city: "Toulouse", span: 4 },
+      { city: "Merignac", span: 5 },
+    ]);
+  });
+
+  it("keeps a removed day in the city that precedes it when nothing follows", () => {
+    const week = withoutDate(splitWeek(), "2025-07-18");
+    expect(citySegments(cols(week), "-")).toEqual([
+      { city: "Toulouse", span: 4 },
+      { city: "Merignac", span: 4 },
+    ]);
+  });
+
+  it("moves the divider onto the travel column when the travel day is removed", () => {
+    const week = withoutDate(splitWeek(), "2025-07-16");
+    expect(citySegments(cols(week), "-")).toEqual([
+      { city: "Toulouse", span: 3 },
+      { city: "Merignac", span: 6 },
+    ]);
+  });
+});
+
+describe("restoreDate", () => {
+  it("brings back the slot the week opened with", () => {
+    const baseline = standardWeek();
+    expect(restoreDate(baseline, "2025-07-19")).toMatchObject({ time: "15:00", callTime: "13:30" });
+  });
+
+  it("brings back a travel day as a travel day", () => {
+    const baseline = splitWeek();
+    expect(restoreDate(baseline, "2025-07-16")).toMatchObject({ status: "travel" });
+  });
+
+  it("defaults a date the baseline never had", () => {
+    expect(restoreDate(standardWeek(), "2025-07-14")).toMatchObject({ status: "show", time: "20:00" });
+  });
+
+  it("returns no id — the caller mints one", () => {
+    expect(restoreDate(standardWeek(), "2025-07-19")).not.toHaveProperty("id");
   });
 });
 
@@ -294,9 +392,9 @@ describe("setDestination", () => {
     const week = splitWeek();
     const travelWed = week[3];
     const out = setDestination(week, travelWed.id, "Bordeaux");
-    expect(citySegments(out, "—")).toEqual([
+    expect(citySegments(cols(out), "-")).toEqual([
       { city: "Toulouse", span: 4 },
-      { city: "Bordeaux", span: 3 },
+      { city: "Bordeaux", span: 5 },
     ]);
   });
 
