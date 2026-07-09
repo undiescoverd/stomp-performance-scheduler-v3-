@@ -40,6 +40,11 @@ export function ScheduleGrid({
     : 0;
   const city = splitLocation(location)[0] || "—";
 
+  // A travel / day-off column is one merged cell over the whole body: every role
+  // row, plus the divider and OFF rows when they're showing.
+  const hasOffRows = hasAssignments && maxOff > 0;
+  const specialRowSpan = roles.length + (hasOffRows ? 1 + maxOff : 0);
+
   return (
     <div className="grid-wrap">
       <div className="grid-title">
@@ -61,7 +66,7 @@ export function ScheduleGrid({
               ))}
             </tr>
 
-            {roles.map((role) => {
+            {roles.map((role, rowIndex) => {
               const elig = castMembers.filter((m) => m.eligibleRoles.includes(role));
               return (
                 <tr key={role}>
@@ -71,7 +76,10 @@ export function ScheduleGrid({
                   </td>
                   {shows.map((show) => {
                     if (show.status !== "show") {
-                      return <SpecialDayCell key={show.id} status={show.status} />;
+                      // The merged cell is emitted once and spans the rows below.
+                      return rowIndex === 0 ? (
+                        <SpecialDayCell key={show.id} status={show.status} rowSpan={specialRowSpan} />
+                      ) : null;
                     }
                     const cur = assignedPerformer(assignments, show.id, role);
                     const isConf = !!cur && conflictsByShow.get(show.id)!.has(cur);
@@ -95,21 +103,13 @@ export function ScheduleGrid({
               <>
                 <tr className="grid-divider">
                   <td />
-                  {shows.map((s) => (
-                    <td key={s.id} />
-                  ))}
+                  {shows.map((s) => (s.status === "show" ? <td key={s.id} /> : null))}
                 </tr>
                 {Array.from({ length: maxOff }).map((_, i) => (
                   <tr key={`off-${i}`}>
                     <td className="off-label">{i === 0 ? "OFF" : ""}</td>
                     {shows.map((show) => {
-                      if (show.status !== "show") {
-                        return (
-                          <td key={show.id} className="off-cell na">
-                            N/A
-                          </td>
-                        );
-                      }
+                      if (show.status !== "show") return null;
                       const offs = offPerformers(assignments, castMembers, show.id);
                       const p = offs[i];
                       if (!p) return <td key={show.id} className="off-cell" />;

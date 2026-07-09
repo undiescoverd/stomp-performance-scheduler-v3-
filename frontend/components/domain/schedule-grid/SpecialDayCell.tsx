@@ -1,21 +1,24 @@
 import { Plane, CalendarOff } from "lucide-react";
 import type { DayStatus } from "~backend/scheduler/types";
 
-/** Travel / day-off cell content spanning a role row for a non-show column. */
-export function SpecialDayCell({ status }: { status: Exclude<DayStatus, "show"> }) {
+interface SpecialDayCellProps {
+  status: Exclude<DayStatus, "show">;
+  /** Rows this cell swallows: every body row beneath the header. */
+  rowSpan: number;
+}
+
+/**
+ * A travel or day-off column has no cast, so its whole body collapses into one
+ * merged cell. The label runs vertically, reading bottom-to-top.
+ */
+export function SpecialDayCell({ status, rowSpan }: SpecialDayCellProps) {
+  const travel = status === "travel";
   return (
-    <td className="cell-special">
-      {status === "travel" ? (
-        <div className="special-box special-travel">
-          <Plane />
-          TRAVEL
-        </div>
-      ) : (
-        <div className="special-box special-off">
-          <CalendarOff />
-          DAY OFF
-        </div>
-      )}
+    <td className="cell-special" rowSpan={rowSpan}>
+      <div className={`special-box ${travel ? "special-travel" : "special-off"}`}>
+        {travel ? <Plane /> : <CalendarOff />}
+        <span className="special-label">{travel ? "Travel Day" : "Day Off"}</span>
+      </div>
     </td>
   );
 }
