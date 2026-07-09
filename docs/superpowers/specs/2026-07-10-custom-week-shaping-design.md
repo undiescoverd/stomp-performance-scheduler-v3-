@@ -134,15 +134,53 @@ days carry shows. A date with no `Show` rows renders as a hatched placeholder
 column labelled "No show", which can be clicked and restored.
 
 This requires no schema change. `useScheduleEditor.ts:266-271` already derives the
-week's Monday by snapping the earliest show's date back to Monday, and that anchor
-survives any single day's removal.
+week's Monday by snapping a show's date back to Monday, and that anchor survives any
+single day's removal.
+
+**Fix the anchor first.** That code reads `schedule.shows[0]`, which is only the
+earliest show while `shows` happens to be sorted. Reshaping and time edits do not
+guarantee it. Compute the Monday from `min(date)` instead, or the whole frame shifts
+by a day.
 
 **Guard:** at least one `Show` row must remain in a schedule, so the anchor can
-never disappear. Removing the final day is rejected.
+never disappear. Removing the final day is rejected. `handleSave` already refuses to
+save a schedule with zero shows, so this tightens an existing rule rather than
+inventing one.
 
 **Accepted behaviour change:** existing schedules will gain placeholder columns for
 days they never had — a Monday column on the Tue–Sun default week, a Sunday column
 on tour-generated Mon–Sat weeks. This is intended.
+
+### 3a. A week can span two cities
+
+"Wednesday travel **to another city**" is half the requirement and the app cannot
+express it: `Schedule.location` is a single string, and per-day location does not
+exist (`TourWeek.locationCity` is per week). The paper call sheets have solved this
+for years — the wordmark sits hard left, and city names run large across the columns
+they cover, divided where the company moves.
+
+`Show` gains an optional `location?: string`. The masthead groups consecutive columns
+by resolved city and spans one cell per group, which produces the divider for free.
+
+**The travel day belongs to the city being left.** Its popover captures the
+destination and writes that city onto every day after it, up to and including the
+next travel day — which in turn belongs to the city *it* leaves.
+
+**Empty days fill backwards.** A date with no shows takes the city of the *next*
+real day, not the previous one. A removed day is never a travel day, and the travel
+day is what marks the boundary, so backward-filling keeps a removed day on the
+correct side of the divider. Trailing empty dates fall back to the last known city.
+Filling forwards is wrong and was caught in the prototype: removing the Thursday of a
+Toulouse→Merignac week dragged Thursday into Toulouse.
+
+`Schedule.location` becomes a summary of the segments, so a split week reads as
+`Toulouse → Merignac` in the schedule list. The week number stays, shown under each
+city, until it is deliberately dropped.
+
+**The grid needs an explicit column model.** `ScheduleGrid` must declare a
+`<colgroup>` with one `<col>` per show column and use `table-layout: fixed`. Under
+auto layout a wide masthead cell hijacks a column's width and the city spans stop
+aligning with the day columns beneath them.
 
 ### 4. The day editor
 
@@ -151,9 +189,15 @@ Clicking a day header opens a popover anchored to that column. It contains:
 - **Status** — Show / Travel Day / Day Off / Remove Day (the existing select, moved).
 - **Per show:** show time and call time inputs, plus Remove when the day has two shows.
 - **"+ Add show to this day"** when the day has exactly one show.
+- **"Travel to — [city]"** when the status is Travel Day, with a note naming the city
+  the day stays with.
 - **"Company RED day"** checkbox when the status is Day Off, explaining that ticking
   it means auto-generate will not place personal RED days elsewhere.
 - **Restore this day** when the day is a placeholder.
+
+The popover is positioned from `getBoundingClientRect`, not `offsetTop`/`offsetLeft`:
+on a table cell those are relative to the table, not to the positioned ancestor, and
+the popover ends up covering the day-header row so adjacent days cannot be clicked.
 
 `GridHead.tsx` keeps responsibility for rendering the header; the popover is a new
 `DayEditor.tsx` sibling so neither file grows unbounded.
@@ -204,25 +248,39 @@ oldest snapshot as its baseline.
 With real undo in place, the `confirm()` dialogs in `GridHead.tsx:22-36` are removed.
 Destroying work behind a modal is worse than letting it be undone.
 
+This is only safe because **saves are explicit**: `handleSave` (`useScheduleEditor.ts:294`)
+is the sole caller of the create and update mutations, nothing autosaves, and
+`autoGenerate` only sets local state. An in-memory history therefore always outlives
+the destructive edit. If autosave is ever introduced, this decision must be revisited.
+
 Auto-generate gains the ability to treat existing assignments as fixed and fill only
 empty shows. This requires `SchedulingAlgorithm` to accept prior assignments as a
 constraint — currently its constructor takes only `(shows, castMembers)` — and is
-therefore the largest single piece of work here. It is milestone 3.
+therefore the largest single piece of work here. It is milestone 4.
 
 ## Milestones
 
-**M1 — Shape the week.** Seven-day frame, day-editor popover, editable show and call
-times, `addShowToDate`, the ordering guard, the id-stability rule, and the edit
-history that replaces the confirm dialogs. No backend change.
+**M1 — Shape the week.** Seven-day frame (with the `min(date)` anchor fix), day-editor
+popover, editable show and call times, `addShowToDate`, the ordering guard, the
+id-stability rule, and the edit history that replaces the confirm dialogs. No backend
+change.
 
-**M2 — Company RED days.** The `isCompanyRedDay` field, the migration, the
+**M2 — Split weeks.** `Show.location`, the segment-spanning masthead with the wordmark
+pinned left, the `<colgroup>` column model, the travel-day destination field, and the
+backward-fill rule. `Schedule.location` becomes a segment summary.
+
+**M3 — Company RED days.** The `isCompanyRedDay` field, the migration, the
 `detectCompanyDayOff` fix, multiple-dark-day support, and the capacity warning.
 
-**M3 — Non-destructive generation.** Auto-generate fills only empty shows, preserving
+**M4 — Non-destructive generation.** Auto-generate fills only empty shows, preserving
 cast on days it did not create.
 
-M1 is independently shippable and unblocks the awkward week. M2 makes RED days
-honest. M3 makes reshaping a generated week pleasant rather than costly.
+M1 is independently shippable and unblocks the awkward week's *shape*. M2 completes the
+requirement by letting that week span two cities. M3 makes RED days honest. M4 makes
+reshaping a generated week pleasant rather than costly.
+
+M2 and M3 both add a field to `Show`, so each needs an `encore gen client` regeneration
+before the frontend typechecks.
 
 ## Testing
 
@@ -230,6 +288,11 @@ honest. M3 makes reshaping a generated week pleasant rather than costly.
   days, the duplicate-time rejection, re-sorting after a time edit, `weekFrame`
   over a week with removed days, and the invariant that `Show.id` is stable across
   a time change.
+- Segment tests over a Toulouse→Merignac week, asserting the boundary holds when
+  each of these is removed in turn: a day in the first city, a day in the second, the
+  leading day, the trailing day, and the travel day itself (which moves the boundary
+  onto its own column). These five cases each caught or would have caught a real
+  boundary bug in the prototype.
 - `algorithm.test.ts` gains the awkward week in both configurations: with the dark
   day flagged, all twelve performers RED on that date; with it unflagged, twelve
   personal RED days distributed across show days and none on the dark day. Plus a
@@ -253,8 +316,23 @@ the editor, which is what this design delivers.
 
 - Existing schedules gain placeholder columns (§3). Visible, intended, worth a
   sentence in release notes.
-- M2 changes RED day semantics for any *new* day off. The migration protects
+- M3 changes RED day semantics for any *new* day off. The migration protects
   existing schedules; a scheduler creating a fresh day off will now get personal
   RED days unless they tick the box. This is the safer default but it is a change.
-- M3 touches the algorithm's constructor and its assignment loop, which is the code
+- M4 touches the algorithm's constructor and its assignment loop, which is the code
   the v3.1 fairness work stabilised. It is sequenced last for that reason.
+- M4 has an unresolved question: pinned assignments can make "everyone gets exactly
+  one RED day" **unsatisfiable**, because the v3.1 logic assumes it controls every
+  placement. The fallback must be decided before implementation — warn and leave the
+  RED day unplaced, or relax the pin. Do not discover this during the build.
+
+## Verified, not assumed
+
+Claims in this spec that were checked against running code rather than reasoned about:
+
+- The algorithm generates the awkward week successfully, five runs from five, with all
+  eight roles filled on all seven shows.
+- All twelve RED days land on the dark day, confirming the `assignRedDays` fork.
+- Saves are explicit; nothing autosaves.
+- Forward-filling the city of an empty day drags it across the divider; backward-filling
+  does not.
