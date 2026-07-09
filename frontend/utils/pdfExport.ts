@@ -106,15 +106,18 @@ export class SchedulePDFExporter {
           if (assignment) {
             // Check if this is a RED day
             const isRedDay = assignment.isRedDay;
-            
+            // RD injury/sickness fatigue override — marked so a warning-level
+            // schedule is legible on paper (jsPDF core fonts lack a flag glyph,
+            // so we use a "*" marker + amber; see the notes legend).
+            const isOverride = assignment.isOverride;
+
             row.push({
-              content: assignment.performer,
-              styles: isRedDay ? {
-                textColor: [220, 20, 20], // RED day performers in red
-                fontStyle: 'bold'
-              } : {
-                fontStyle: 'normal'
-              }
+              content: isOverride ? `${assignment.performer} *` : assignment.performer,
+              styles: isRedDay
+                ? { textColor: [220, 20, 20], fontStyle: 'bold' } // RED day performers in red
+                : isOverride
+                  ? { textColor: [176, 108, 0], fontStyle: 'bold' } // override in amber
+                  : { fontStyle: 'normal' }
             });
           } else {
             row.push('');
@@ -309,6 +312,7 @@ export class SchedulePDFExporter {
     // RED day explanation with bullet points
     this.doc.text('• RED Day - Performer is not on call and cannot be called in for emergency cover unless compensated', 20, currentY + 6);
     this.doc.text('• TRAVEL/DAY OFF days show special status instead of individual assignments', 20, currentY + 11);
+    this.doc.text('• *  (amber) - RD injury/sickness fatigue override; the back-to-back / weekly-cap breach is accepted as cover', 20, currentY + 16);
   }
 
   private addFooter(): void {

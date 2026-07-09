@@ -12,7 +12,7 @@ export const FEATURES = {
    * Controls visibility and access to tour management features
    * Set to true to enable tours functionality
    */
-  MULTI_COUNTRY_TOURS: false,
+  MULTI_COUNTRY_TOURS: true,
   
   /**
    * Authentication functionality
