@@ -126,6 +126,9 @@ export function ScheduleEditorScreen() {
           onToggleRedDay={editor.handleToggleRedDay}
           onShowStatusChange={editor.handleShowStatusChange}
           onRemoveShow={editor.handleRemoveShow}
+          onShowChange={editor.handleShowChange}
+          onAddShowToDate={editor.handleAddShowToDate}
+          onSetDestination={editor.handleSetDestination}
         />
       </div>
 

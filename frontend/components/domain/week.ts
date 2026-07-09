@@ -64,6 +64,83 @@ export function resetShowTimes(shows: Show[]): Show[] {
   });
 }
 
+const MATINEE = { time: "15:00", callTime: "13:30" };
+const EVENING = { time: "20:00", callTime: "18:00" };
+
+/**
+ * A second show for a date that currently holds exactly one, without an id.
+ * Returns null when the day can't take one — it's travel, a day off, or already
+ * a double. An evening gains a matinee and a matinee gains an evening, so the
+ * two never collide on a time (see `timeIsFree`).
+ */
+export function addShowToDate(shows: Show[], date: string): Omit<Show, "id"> | null {
+  const day = showsOnDate(shows, date).filter((s) => s.status === "show");
+  if (day.length !== 1) return null;
+
+  const existing = day[0];
+  const isEvening = /^\d{2}:\d{2}$/.test(existing.time) && existing.time >= "18:00";
+  const slot = isEvening ? MATINEE : EVENING;
+
+  return { date, status: "show", ...slot, location: existing.location };
+}
+
+/**
+ * Two shows on one date must not share a time: `nextShow` restores a removed
+ * slot by matching on time, and a duplicate makes it restore the wrong one.
+ */
+export function timeIsFree(shows: Show[], showId: string, time: string): boolean {
+  const target = shows.find((s) => s.id === showId);
+  if (!target) return false;
+  return !showsOnDate(shows, isoDate(target.date)).some((s) => s.id !== showId && s.time === time);
+}
+
+/** A run of consecutive columns sharing one city. */
+export interface CitySegment {
+  city: string;
+  span: number;
+}
+
+/** A column's city: its own, else the schedule's. */
+export function cityOf(show: Show, fallback: string): string {
+  return (show.location ?? "").trim() || fallback;
+}
+
+/**
+ * Consecutive columns grouped by city, in column order. A single-city week
+ * yields one segment spanning everything; the divider between segments is what
+ * marks a mid-week move.
+ */
+export function citySegments(shows: Show[], fallback: string): CitySegment[] {
+  const segments: CitySegment[] = [];
+  for (const show of shows) {
+    const city = cityOf(show, fallback);
+    const last = segments[segments.length - 1];
+    if (last && last.city === city) last.span += 1;
+    else segments.push({ city, span: 1 });
+  }
+  return segments;
+}
+
+/**
+ * Point a travel day at the city it's heading for.
+ *
+ * The travel day belongs to the city being *left*, so the destination is written
+ * onto every column after it — up to and including the next travel day, which in
+ * turn belongs to the city it leaves. That keeps each divider immediately after
+ * its own travel column.
+ */
+export function setDestination(shows: Show[], travelShowId: string, city: string): Show[] {
+  const ordered = sortShows(shows);
+  const start = ordered.findIndex((s) => s.id === travelShowId);
+  if (start < 0 || ordered[start].status !== "travel") return shows;
+
+  return ordered.map((show, i) => {
+    if (i <= start) return show;
+    const previousWasTravel = ordered.slice(start + 1, i).some((s) => s.status === "travel");
+    return previousWasTravel ? show : { ...show, location: city };
+  });
+}
+
 /**
  * The show "Add Show" should add next, without an id.
  *

@@ -16,6 +16,13 @@ export interface Show {
   time: string;
   callTime: string;
   status: DayStatus;
+  /**
+   * City this column belongs to, when a week spans more than one. Absent on
+   * single-city weeks, where the schedule's own `location` is the city. A
+   * travel day carries the city being *left*, so the destination lives on the
+   * days after it — see `setDestination` in frontend/components/domain/week.ts.
+   */
+  location?: string;
 }
 
 export interface Assignment {

@@ -5,7 +5,14 @@ import backend from '~backend/client';
 import type { Show, Assignment, Role, DayStatus } from '~backend/scheduler/types';
 import { useToast } from '@/components/ui/use-toast';
 import { isoDate } from '@/components/domain/format';
-import { nextShow, resetShowTimes, sortShows } from '@/components/domain/week';
+import {
+  addShowToDate,
+  nextShow,
+  resetShowTimes,
+  setDestination,
+  sortShows,
+  timeIsFree,
+} from '@/components/domain/week';
 
 export function useScheduleEditor(id?: string) {
   const navigate = useNavigate();
@@ -439,15 +446,38 @@ export function useScheduleEditor(id?: string) {
     }
   };
 
+  const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
+
+  /**
+   * Edit a show's date or times. Never touches `show.id`: assignments reference
+   * it, so re-keying a show would orphan every performer cast in it. A time that
+   * would duplicate the other show on the same date is rejected — `nextShow`
+   * restores removed slots by matching on time.
+   */
   const handleShowChange = (showId: string, field: 'date' | 'time' | 'callTime', value: string) => {
-    setShows(prev => prev.map(show =>
+    if (!value) return false;
+    if (field === 'time' && !timeIsFree(shows, showId, value)) return false;
+
+    setShows(prev => sortShows(prev.map(show =>
       show.id === showId ? { ...show, [field]: value } : show
-    ));
+    )));
+    return true;
+  };
+
+  /** Turn a single-show day into a double, leaving that day's existing cast alone. */
+  const handleAddShowToDate = (date: string) => {
+    const slot = addShowToDate(shows, date);
+    if (!slot) return;
+    setShows(prev => sortShows([...prev, { ...slot, id: generateId() }]));
+  };
+
+  /** Point a travel day at the city the company is moving to. */
+  const handleSetDestination = (travelShowId: string, city: string) => {
+    setShows(prev => setDestination(prev, travelShowId, city.trim()));
   };
 
   /** Undo for Remove Day: restore the next slot the week is missing. See `nextShow`. */
   const handleAddShow = () => {
-    const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
     const slot = nextShow(baselineShows.current, shows);
     setShows(prev => sortShows([...prev, { ...slot, id: generateId() }]));
   };
@@ -491,6 +521,8 @@ export function useScheduleEditor(id?: string) {
     handleToggleOverride,
     handleShowStatusChange,
     handleShowChange,
+    handleAddShowToDate,
+    handleSetDestination,
     handleAddShow,
     handleRemoveShow,
     handleResetShowTimes,

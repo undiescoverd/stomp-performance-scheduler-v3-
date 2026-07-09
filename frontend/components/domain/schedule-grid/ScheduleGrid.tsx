@@ -17,6 +17,9 @@ interface ScheduleGridProps {
   onToggleRedDay: (date: string, performer: string) => void;
   onShowStatusChange: (showId: string, status: Show["status"]) => void;
   onRemoveShow: (showId: string) => void;
+  onShowChange: (showId: string, field: "time" | "callTime", value: string) => boolean;
+  onAddShowToDate: (date: string) => void;
+  onSetDestination: (travelShowId: string, city: string) => void;
 }
 
 export function ScheduleGrid({
@@ -30,6 +33,9 @@ export function ScheduleGrid({
   onToggleRedDay,
   onShowStatusChange,
   onRemoveShow,
+  onShowChange,
+  onAddShowToDate,
+  onSetDestination,
 }: ScheduleGridProps) {
   const showShows = shows.filter((s) => s.status === "show");
   const assignedShowIds = new Set(assignments.filter((a) => a.role !== "OFF").map((a) => a.showId));
@@ -47,16 +53,26 @@ export function ScheduleGrid({
 
   return (
     <div className="grid-wrap">
-      <div className="grid-title">
-        STOMP <span className="sep">·</span> {city} <span className="sep">·</span> Week {week || "—"}
-      </div>
       <div className="grid-scroll">
         <table className="grid-table">
+          {/* One <col> per column: a city header spans several of them, and under
+              auto layout a wide spanning cell distorts the columns beneath it. */}
+          <colgroup>
+            <col className="col-label" />
+            {shows.map((s) => (
+              <col key={s.id} />
+            ))}
+          </colgroup>
           <GridHead
             shows={shows}
             assignedShowIds={assignedShowIds}
+            location={city}
+            week={week}
             onStatusChange={onShowStatusChange}
             onRemove={onRemoveShow}
+            onShowChange={onShowChange}
+            onAddShowToDate={onAddShowToDate}
+            onSetDestination={onSetDestination}
           />
           <tbody>
             <tr className="grid-divider">

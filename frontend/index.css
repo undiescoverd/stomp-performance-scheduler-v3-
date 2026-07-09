@@ -467,14 +467,109 @@
   overflow: hidden;
 }
 .grid-scroll { overflow-x: auto; }
-.grid-title {
-  text-align: center;
-  font: 600 16px/1 var(--font-display);
+
+/* Masthead: wordmark pinned left, then one cell per city, spanning the columns
+   that city covers. A split week gets a divider where the company moves. */
+.masthead .wordmark-cell { padding: 10px 14px; }
+.wordmark {
+  display: inline-block;
+  background: var(--fg);
+  color: var(--surface);
+  font: italic 700 16px/1 var(--font-display);
   letter-spacing: 0.02em;
-  padding: 16px 0 10px;
+  padding: 5px 9px 4px;
 }
-.grid-title .sep { color: var(--faint); margin: 0 10px; font-weight: 400; }
-.grid-table { border-collapse: collapse; width: 100%; min-width: 760px; }
+.grid-table .city-head { padding: 12px 8px 10px; vertical-align: middle; }
+.city-name {
+  font: 700 clamp(18px, 2vw, 26px)/1 var(--font-display);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.city-week {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-top: 4px;
+}
+.grid-table .city-divider { border-left: 3px solid var(--fg); }
+
+/* Table layout is fixed so a spanning city cell cannot distort the day columns
+   beneath it. col.col-label matches .row-label's width. */
+.grid-table { border-collapse: collapse; table-layout: fixed; width: 100%; min-width: 860px; }
+.grid-table col.col-label { width: 116px; }
+
+/* The day header is the editing surface: click it to open the day editor. */
+.day-head {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.day-head:hover { background: var(--surface-3, var(--surface)); }
+.day-head.is-open { box-shadow: inset 0 -2px 0 var(--accent); }
+.day-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.day-editor {
+  position: fixed;
+  z-index: 60;
+  width: 244px;
+  background: var(--surface);
+  border: 1px solid var(--fg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2, 0 12px 28px rgb(0 0 0 / 0.18));
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.day-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font: 700 13px/1 var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.day-editor-city { font: 500 10px/1 var(--font-mono); letter-spacing: 0.06em; color: var(--faint); }
+.day-editor-times { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.day-editor-times label,
+.day-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.day-editor input {
+  font: 500 12px/1 var(--font-mono);
+  padding: 6px;
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-transform: none;
+}
+.day-editor-action {
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  padding: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.day-editor-action:hover { border-color: var(--accent); color: var(--accent); }
+.day-editor-note { font: 400 11px/1.4 var(--font-sans, inherit); color: var(--muted); margin: 0; }
+.day-editor-warn { font: 500 11px/1.4 var(--font-sans, inherit); color: var(--danger, #b3242b); margin: 0; }
 .grid-table th, .grid-table td { border: 1px solid var(--border); }
 .grid-table thead th {
   background: var(--surface-2);
