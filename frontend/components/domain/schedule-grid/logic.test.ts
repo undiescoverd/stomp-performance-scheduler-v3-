@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { showConflicts, analyzeFatigue, gridAnalytics, rosterShowCounts } from "./logic";
+import { showConflicts, analyzeFatigue, gridAnalytics, rosterShowCounts, splitByCurtain } from "./logic";
 import type { Show, Assignment, CastMember } from "~backend/scheduler/types";
 
 const show = (id: string, date: string): Show => ({ id, date, time: "19:30", callTime: "18:00", status: "show" });
@@ -109,5 +109,41 @@ describe("rosterShowCounts", () => {
       { name: "ALEX", showCount: 1 },
       { name: "SAM", showCount: 0 },
     ]);
+  });
+});
+
+describe("splitByCurtain", () => {
+  const at = (id: string, time: string, status: Show["status"] = "show"): Show => ({
+    id,
+    date: "2025-07-19",
+    time,
+    callTime: "13:30",
+    status,
+  });
+
+  it("splits timed shows at 17:00", () => {
+    expect(splitByCurtain([at("a", "15:00"), at("b", "20:00"), at("c", "18:00")])).toEqual({
+      matinees: 1,
+      evenings: 2,
+    });
+  });
+
+  it("counts a TBC show as neither matinee nor evening", () => {
+    const { matinees, evenings } = splitByCurtain([at("a", "15:00"), at("b", "20:00"), at("c", "TBC")]);
+    expect(matinees).toBe(1);
+    expect(evenings).toBe(1);
+    // The buckets deliberately do not sum to the show count.
+    expect(matinees + evenings).toBe(2);
+  });
+
+  it("counts a cleared time as neither, rather than sweeping it into evenings", () => {
+    expect(splitByCurtain([at("a", "")])).toEqual({ matinees: 0, evenings: 0 });
+  });
+
+  it("ignores travel and day-off columns", () => {
+    expect(splitByCurtain([at("a", "Travel", "travel"), at("b", "20:00")])).toEqual({
+      matinees: 0,
+      evenings: 1,
+    });
   });
 });

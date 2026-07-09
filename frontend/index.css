@@ -590,6 +590,26 @@
   text-transform: uppercase;
   color: var(--muted);
 }
+.day-editor-time-label { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+/* The TBC toggle sits beside the picker rather than replacing it: a text box
+   would be the only way to type "TBC", and it would cost us the native picker. */
+.day-editor-tbc {
+  font: 600 9px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  padding: 3px 5px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.day-editor-tbc:hover { color: var(--fg); border-color: var(--muted); }
+.day-editor-tbc[aria-pressed="true"] {
+  background: var(--surface-2);
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .day-editor input {
   font: 500 12px/1 var(--font-mono);
   padding: 6px;
@@ -599,6 +619,7 @@
   border-radius: 4px;
   text-transform: none;
 }
+.day-editor input:disabled { opacity: 0.45; cursor: not-allowed; }
 .day-editor-action {
   font: 600 11px/1 var(--font-mono);
   letter-spacing: 0.06em;
@@ -649,8 +670,29 @@
 /* show column header */
 .show-day { font: 700 14px/1.1 var(--font-display); color: var(--fg); text-transform: uppercase; letter-spacing: 0.02em; }
 .show-date { font: 500 10px/1 var(--font-mono); color: var(--faint); margin-top: 3px; }
-.show-time { font: 500 12px/1 var(--font-mono); color: var(--accent); margin-top: 4px; }
-.show-call { font: 400 10px/1 var(--font-mono); color: var(--faint); margin-top: 2px; }
+
+/* Show and Call times. One rule for both rows: on the printed call sheet they
+   are equally loud, and you read a column top to bottom. tabular-nums keeps the
+   digits in a column so times line up down the week. */
+.grid-table .time-cell {
+  font: 600 13px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  letter-spacing: 0.02em;
+  padding: 7px 6px;
+  text-align: center;
+}
+/* An unset time is a placeholder, not a number — a chip, so it never reads as one. */
+.grid-table .time-cell.is-tbc .tbc-chip {
+  display: inline-block;
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 3px 7px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
 
 /* assignment cell */
 .cell-assign { padding: 4px; min-width: 84px; }

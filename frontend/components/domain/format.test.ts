@@ -43,4 +43,7 @@ describe("fmtTime", () => {
   it("passes through TBC", () => {
     expect(fmtTime("TBC")).toBe("TBC");
   });
+  it("renders a cleared time as TBC, never as blank", () => {
+    expect(fmtTime("")).toBe("TBC");
+  });
 });

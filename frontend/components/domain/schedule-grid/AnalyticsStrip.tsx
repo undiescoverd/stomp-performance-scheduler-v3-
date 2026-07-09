@@ -1,5 +1,5 @@
 import type { Show } from "~backend/scheduler/types";
-import type { GridAnalytics } from "./logic";
+import { splitByCurtain, type GridAnalytics } from "./logic";
 
 interface AnalyticsStripProps {
   analytics: GridAnalytics;
@@ -9,9 +9,7 @@ interface AnalyticsStripProps {
 
 export function AnalyticsStrip({ analytics, shows, redTarget }: AnalyticsStripProps) {
   const { showCount, filled, totalSlots, coveragePct, conflicts, redCovered } = analytics;
-  const showShows = shows.filter((s) => s.status === "show");
-  const matinees = showShows.filter((s) => s.time && s.time < "17:00").length;
-  const evenings = showShows.length - matinees;
+  const { matinees, evenings } = splitByCurtain(shows);
 
   return (
     <section className="stats mt-24">

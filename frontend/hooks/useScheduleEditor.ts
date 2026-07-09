@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import backend from '~backend/client';
 import type { Show, Assignment, Role, DayStatus } from '~backend/scheduler/types';
+import { normalizeTime } from '~backend/scheduler/time';
 import { useToast } from '@/components/ui/use-toast';
 import { isoDate } from '@/components/domain/format';
 import {
@@ -478,14 +479,19 @@ export function useScheduleEditor(id?: string) {
    * it, so re-keying a show would orphan every performer cast in it. A time that
    * would duplicate the other show on the same date is rejected — `nextShow`
    * restores removed slots by matching on time.
+   *
+   * A cleared time commits as TBC, not "". Only the time fields are normalized:
+   * `normalizeTime` on a date would turn "2025-08-05" into "TBC", since a date
+   * isn't HH:MM either.
    */
   const handleShowChange = (showId: string, field: 'date' | 'time' | 'callTime', value: string) => {
-    if (!value) return false;
-    if (field === 'time' && !timeIsFree(shows, showId, value)) return false;
+    if (field === 'date' && !value) return false;
+    const next = field === 'date' ? value : normalizeTime(value);
+    if (field === 'time' && !timeIsFree(shows, showId, next)) return false;
 
     snapshot();
     setShows(prev => sortShows(prev.map(show =>
-      show.id === showId ? { ...show, [field]: value } : show
+      show.id === showId ? { ...show, [field]: next } : show
     )));
     return true;
   };

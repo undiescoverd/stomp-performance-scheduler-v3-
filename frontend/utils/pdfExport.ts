@@ -69,15 +69,15 @@ export class SchedulePDFExporter {
         const monthDay = format(date, 'M/d');
         return `${dayName} ${monthDay}`;
       })],
-      ['', ...shows.map(show => {
-        if (show.status === 'show') {
-          const timeFormatted = this.formatTime(show.time);
-          const callTime = this.formatCallTime(show.callTime);
-          return `${timeFormatted}\nCall: ${callTime}`;
-        } else {
-          return show.status.toUpperCase();
-        }
-      })]
+      // Show and Call are two labelled rows of equal weight, as on the printed
+      // call sheet. Stacked in one cell the call time read as a footnote to the
+      // curtain time, and a TBC in it was easy to miss.
+      ['Show', ...shows.map(show =>
+        show.status === 'show' ? this.formatTime(show.time) : show.status.toUpperCase()
+      )],
+      ['Call', ...shows.map(show =>
+        show.status === 'show' ? this.formatCallTime(show.callTime) : ''
+      )]
     ];
     
     // Build role assignment rows
@@ -284,6 +284,9 @@ export class SchedulePDFExporter {
   }
 
   private formatTime(time: string): string {
+    // A show time that isn't set yet — or was cleared — prints as TBC, the same
+    // as a call time. Without this an empty cell reads as a missing show.
+    if (!time || time === 'TBC') return 'TBC';
     // Format time based on common STOMP patterns
     if (time === 'mat' || time === 'matinee') return 'Mat';
     if (time === 'eve' || time === 'evening') return 'Eve';

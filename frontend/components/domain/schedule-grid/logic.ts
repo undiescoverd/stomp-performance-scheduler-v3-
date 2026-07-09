@@ -1,4 +1,5 @@
 import type { Show, Assignment, CastMember, Role } from "~backend/scheduler/types";
+import { isKnownTime } from "~backend/scheduler/time";
 import { isoDate, parseLocalDate } from "@/components/domain/format";
 
 /** Performer currently filling a role in a show ("" if empty). */
@@ -112,6 +113,22 @@ export function analyzeFatigue(
     }
   }
   return issues;
+}
+
+const MATINEE_BEFORE = "17:00";
+
+/**
+ * Split the week's stage shows by curtain time.
+ *
+ * Both buckets are gated on a known time: a TBC show is neither a matinee nor an
+ * evening, because nobody has decided yet. So `matinees + evenings` is the count
+ * of *timed* shows, not `showCount` — deriving one from the other would sweep
+ * every TBC show into whichever side wasn't gated.
+ */
+export function splitByCurtain(shows: Show[]): { matinees: number; evenings: number } {
+  const timed = shows.filter((s) => s.status === "show" && isKnownTime(s.time));
+  const matinees = timed.filter((s) => s.time < MATINEE_BEFORE).length;
+  return { matinees, evenings: timed.length - matinees };
 }
 
 export interface RosterEntry {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Show, DayStatus } from "~backend/scheduler/types";
+import { isKnownTime } from "~backend/scheduler/time";
 import { shortDate, dowShort, fmtTime, isoDate } from "../format";
 import { citySegments, resolveCities, type Column } from "../week";
 import { DayEditor } from "./DayEditor";
@@ -107,12 +108,6 @@ export function GridHead({
               >
                 <div className="show-day">{dowShort(column.date)}</div>
                 <div className="show-date">{shortDate(column.date)}</div>
-                {column.show?.status === "show" ? (
-                  <>
-                    <div className="show-time">{fmtTime(column.show.time)}</div>
-                    <div className="show-call">call {fmtTime(column.show.callTime)}</div>
-                  </>
-                ) : null}
               </button>
             </th>
           );
@@ -150,6 +145,30 @@ export function GridHead({
           );
         })}
       </tr>
+
+      {/*
+        Show and Call are two labelled rows of equal weight, directly above the
+        cast they govern — the shape of the printed call sheet. Stacked inside
+        the day-header button they were a bright time over a faint one, and the
+        call time read as an afterthought. A column that isn't a show leaves
+        these cells empty: the merged cell in the body already says TRAVEL or
+        DAY OFF, and repeating it here would just be noise.
+      */}
+      {(["time", "callTime"] as const).map((field) => (
+        <tr key={field}>
+          <th className="row-label">{field === "time" ? "Show" : "Call"}</th>
+          {columns.map((column) => {
+            const value = column.show?.status === "show" ? column.show[field] : null;
+            if (value === null) return <th key={columnKey(column)} />;
+            const known = isKnownTime(value);
+            return (
+              <th key={columnKey(column)} className={`time-cell${known ? "" : " is-tbc"}`}>
+                {known ? fmtTime(value) : <span className="tbc-chip">TBC</span>}
+              </th>
+            );
+          })}
+        </tr>
+      ))}
 
       {openColumn ? (
         <DayEditor

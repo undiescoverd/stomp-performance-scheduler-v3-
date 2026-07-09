@@ -117,6 +117,22 @@ describe("sortShows", () => {
     const sorted = sortShows([travel, standardWeek()[4]]);
     expect(sorted.map((s) => s.time)).toEqual(["15:00", "Travel"]);
   });
+
+  it("parks a TBC show at the end of its own date, not the end of the week", () => {
+    const tbc = show("2025-07-17", "TBC", "TBC");
+    const sorted = sortShows([tbc, ...standardWeek()]);
+    expect(sorted.map((s) => `${s.date} ${s.time}`)).toEqual([
+      "2025-07-15 20:00",
+      "2025-07-16 20:00",
+      "2025-07-17 20:00",
+      "2025-07-17 TBC",
+      "2025-07-18 20:00",
+      "2025-07-19 15:00",
+      "2025-07-19 20:00",
+      "2025-07-20 15:00",
+      "2025-07-20 18:00",
+    ]);
+  });
 });
 
 describe("nextShow", () => {
@@ -263,6 +279,16 @@ describe("timeIsFree", () => {
   it("allows a show to keep its own time", () => {
     const week = [show("2025-07-19", "15:00", "13:30"), show("2025-07-19", "20:00")];
     expect(timeIsFree(week, week[0].id, "15:00")).toBe(true);
+  });
+
+  it("never collides on TBC — a day can hold two shows whose times are both unset", () => {
+    const week = [show("2025-07-19", "TBC", "TBC"), show("2025-07-19", "20:00")];
+    expect(timeIsFree(week, week[1].id, "TBC")).toBe(true);
+  });
+
+  it("treats a cleared time as TBC rather than a collision", () => {
+    const week = [show("2025-07-19", "TBC", "TBC"), show("2025-07-19", "20:00")];
+    expect(timeIsFree(week, week[1].id, "")).toBe(true);
   });
 });
 

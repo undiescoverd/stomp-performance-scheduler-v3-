@@ -1,4 +1,5 @@
 import type { Show } from "~backend/scheduler/types";
+import { isKnownTime } from "~backend/scheduler/time";
 import { isoDate } from "./format";
 
 /**
@@ -20,9 +21,10 @@ export function showsOnDate(list: Show[], date: string): Show[] {
   return list.filter((s) => isoDate(s.date) === date);
 }
 
-// Travel columns carry a non-HH:MM time ("Travel"), so park them at the end of
-// their own date rather than letting a string compare scatter them.
-const sortKey = (s: Show) => `${isoDate(s.date)} ${/^\d{2}:\d{2}$/.test(s.time) ? s.time : "99:99"}`;
+// Travel columns carry a non-HH:MM time ("Travel"), and a show whose time isn't
+// set yet carries "TBC". Park both at the end of their own date rather than
+// letting a string compare scatter them.
+const sortKey = (s: Show) => `${isoDate(s.date)} ${isKnownTime(s.time) ? s.time : "99:99"}`;
 
 /** Chronological, matinee before evening. */
 export function sortShows(list: Show[]): Show[] {
@@ -78,7 +80,7 @@ export function addShowToDate(shows: Show[], date: string): Omit<Show, "id"> | n
   if (day.length !== 1) return null;
 
   const existing = day[0];
-  const isEvening = /^\d{2}:\d{2}$/.test(existing.time) && existing.time >= "18:00";
+  const isEvening = isKnownTime(existing.time) && existing.time >= "18:00";
   const slot = isEvening ? MATINEE : EVENING;
 
   return { date, status: "show", ...slot, location: existing.location };
@@ -87,10 +89,14 @@ export function addShowToDate(shows: Show[], date: string): Omit<Show, "id"> | n
 /**
  * Two shows on one date must not share a time: `nextShow` restores a removed
  * slot by matching on time, and a duplicate makes it restore the wrong one.
+ *
+ * TBC never collides. Two shows on a day can both be waiting on a curtain time,
+ * and refusing the second edit would leave the user no way to say so.
  */
 export function timeIsFree(shows: Show[], showId: string, time: string): boolean {
   const target = shows.find((s) => s.id === showId);
   if (!target) return false;
+  if (!isKnownTime(time)) return true;
   return !showsOnDate(shows, isoDate(target.date)).some((s) => s.id !== showId && s.time === time);
 }
 
