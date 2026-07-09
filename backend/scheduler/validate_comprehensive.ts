@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { Show, Assignment } from "./types";
 import { SchedulingAlgorithm, ConstraintResult } from "./algorithm";
 import { areDatesConsecutive } from "./date_rules";
+import { TBC, isKnownTime, parseShowDateTime, showSortKey } from "./time";
 
 export interface ValidateComprehensiveRequest {
   shows: Show[];
@@ -92,11 +93,16 @@ export const validateComprehensive = api<ValidateComprehensiveRequest, ValidateC
         const dateObj = new Date(date + "T12:00:00Z");
         const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
         const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+        // An unknown time must not be parsed — see formatDateForValidation in
+        // algorithm.ts. It renders "Invalid Date" into the message and never throws.
+        if (!isKnownTime(time)) return `${dayName} ${monthDay} ${TBC}`;
+
         const [hours, minutes] = time.split(':');
         const timeObj = new Date();
         timeObj.setHours(parseInt(hours), parseInt(minutes));
         const timeStr = timeObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-        
+
         return `${dayName} ${monthDay} ${timeStr}`;
       } catch (error) {
         return `${date} ${time}`;
@@ -327,13 +333,11 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
     }
     
     // Sort shows by date and time
+    // showSortKey, not a raw time compare: "TBC" sorts after every digit and
+    // would drop a timeless show into the wrong slot of the sequence.
     const sortedShows = [...activeShows]
       .filter(show => memberShows.has(show.id))
-      .sort((a, b) => {
-        const dateCompare = a.date.localeCompare(b.date);
-        if (dateCompare !== 0) return dateCompare;
-        return a.time.localeCompare(b.time);
-      });
+      .sort((a, b) => showSortKey(a.date, a.time).localeCompare(showSortKey(b.date, b.time)));
     
     const sequences: Array<{
       startDate: string;
@@ -424,7 +428,11 @@ function getConsecutiveShowSuggestions(performer: string, sequence: any, assignm
   // Find assignments for this performer in the sequence period
   const performerAssignments = assignments.filter(a => a.performer === performer);
   const sequenceShows = activeShows.filter(show => {
-    const showDate = new Date(`${show.date}T${show.time}`);
+    // A show with no known time cannot be proven to fall inside the window, so it
+    // is excluded rather than compared. An Invalid Date compares false against
+    // everything, which would drop it silently and identically — but by accident.
+    const showDate = parseShowDateTime(show.date, show.time);
+    if (!showDate) return false;
     const sequenceStart = new Date(sequence.startDate);
     const sequenceEnd = new Date(sequence.endDate);
     return showDate >= sequenceStart && showDate <= sequenceEnd;
@@ -465,11 +473,10 @@ function getOverworkedSuggestions(performer: string, assignments: Assignment[], 
       const show = activeShows.find(s => s.id === assignment.showId);
       return { assignment, show };
     }).filter(item => item.show)
-      .sort((a, b) => {
-        const dateA = new Date(`${a.show!.date}T${a.show!.time}`);
-        const dateB = new Date(`${b.show!.date}T${b.show!.time}`);
-        return dateB.getTime() - dateA.getTime(); // Most recent first
-      });
+      // Most recent first. showSortKey rather than a Date difference: a TBC show
+      // yields NaN, and a NaN comparator silently scrambles the whole order.
+      .sort((a, b) =>
+        showSortKey(b.show!.date, b.show!.time).localeCompare(showSortKey(a.show!.date, a.show!.time)));
     
     // Suggest redistributing 1-2 recent assignments
     for (let i = 0; i < Math.min(2, sortedAssignments.length); i++) {

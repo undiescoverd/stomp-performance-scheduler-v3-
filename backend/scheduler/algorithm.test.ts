@@ -739,4 +739,57 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
       }
     });
   });
+
+  // A show whose time isn't set yet carries time "TBC". The old sort built a
+  // Date from `${date}T${time}`, and `new Date("2024-01-04TTBC").getTime()` is
+  // NaN. A NaN comparator makes Array.sort return an arbitrary order *silently*,
+  // so every consecutive-show and fatigue check downstream reads a week that
+  // never existed. These tests pin the order rather than merely asserting no throw.
+  describe('TBC show times', () => {
+    const orderOf = (algorithm: SchedulingAlgorithm) =>
+      (algorithm as any).getSortedActiveShows().map((s: Show) => s.id);
+
+    // The TBC show is fed in FIRST, out of position. A NaN comparator is treated
+    // as 0, which leaves an element where it sits — so a broken sort returns it
+    // still at the front. Only a real sort walks it into Thursday evening.
+    const withTbcFirst = (): Show[] => [
+      { id: "thu_tbc", date: "2024-01-04", time: "TBC", callTime: "TBC", status: "show" },
+      ...weekShows,
+    ];
+
+    it('sorts a mid-week TBC show last within its own day', () => {
+      const algorithm = new SchedulingAlgorithm(withTbcFirst(), defaultCastMembers);
+
+      expect(orderOf(algorithm)).toEqual([
+        "tue", "wed", "thu", "thu_tbc", "fri", "sat_mat", "sat_eve", "sun_mat", "sun_eve",
+      ]);
+    });
+
+    it('returns the same order on a second call (the sort is memoised)', () => {
+      const algorithm = new SchedulingAlgorithm(withTbcFirst(), defaultCastMembers);
+      const first = orderOf(algorithm);
+      expect(orderOf(algorithm)).toEqual(first);
+      expect(first[3]).toBe("thu_tbc");
+    });
+
+    it('leaves an all-known-times week in the order it always had', () => {
+      const shuffled = [weekShows[5], weekShows[0], weekShows[7], weekShows[2],
+                        weekShows[4], weekShows[1], weekShows[6], weekShows[3]];
+      const algorithm = new SchedulingAlgorithm(shuffled, defaultCastMembers);
+      expect(orderOf(algorithm)).toEqual([
+        "tue", "wed", "thu", "fri", "sat_mat", "sat_eve", "sun_mat", "sun_eve",
+      ]);
+    });
+
+    it('never leaks the string "Invalid Date" into a user-facing message', () => {
+      const format = (date: string, time: string) =>
+        (new SchedulingAlgorithm(weekShows, defaultCastMembers) as any)
+          .formatDateForValidation(date, time) as string;
+
+      for (const unknown of ["TBC", ""]) {
+        expect(format("2024-01-04", unknown)).not.toContain("Invalid Date");
+      }
+      expect(format("2024-01-04", "TBC")).toContain("TBC");
+    });
+  });
 });

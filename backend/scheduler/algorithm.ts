@@ -1,5 +1,6 @@
 import { Role, Show, Assignment, CastMember, FEMALE_ONLY_ROLES } from "./types";
 import { areDatesConsecutive } from "./date_rules";
+import { TBC, isKnownTime, showSortKey } from "./time";
 
 export interface AutoGenerateResult {
   success: boolean;
@@ -123,13 +124,11 @@ export class SchedulingAlgorithm {
   // Get sorted active shows with caching
   private getSortedActiveShows(): Show[] {
     if (this._sortedActiveShows === null) {
+      // showSortKey, not a Date difference: a TBC show yields an Invalid Date,
+      // whose NaN comparator silently leaves the sort in an arbitrary order.
       this._sortedActiveShows = this.shows
         .filter(show => show.status === "show")
-        .sort((a, b) => {
-          const dateTimeA = new Date(`${a.date}T${a.time}`);
-          const dateTimeB = new Date(`${b.date}T${b.time}`);
-          return dateTimeA.getTime() - dateTimeB.getTime();
-        });
+        .sort((a, b) => showSortKey(a.date, a.time).localeCompare(showSortKey(b.date, b.time)));
     }
     return this._sortedActiveShows;
   }
@@ -1667,11 +1666,18 @@ export class SchedulingAlgorithm {
       const dateObj = new Date(date + "T12:00:00Z");
       const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
       const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+      // An unknown time must not be parsed: parseInt("TBC") is NaN, setHours(NaN)
+      // makes an Invalid Date, and toLocaleTimeString then renders the literal
+      // string "Invalid Date" straight into a user-facing error. No throw, so the
+      // catch below never fires.
+      if (!isKnownTime(time)) return `${dayName} ${monthDay} ${TBC}`;
+
       const [hours, minutes] = time.split(':');
       const timeObj = new Date();
       timeObj.setHours(parseInt(hours), parseInt(minutes));
       const timeStr = timeObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-      
+
       return `${dayName} ${monthDay} ${timeStr}`;
     } catch (error) {
       return `${date} ${time}`;
