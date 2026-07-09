@@ -510,8 +510,8 @@
 .grid-divider td { border-top: 2px solid var(--fg); height: 3px; padding: 0; background: var(--surface); }
 
 /* show column header */
-.show-date { font: 600 13px/1.1 var(--font-display); color: var(--fg); }
-.show-day { font: 500 10px/1 var(--font-mono); color: var(--faint); letter-spacing: 0.1em; text-transform: uppercase; margin-top: 3px; }
+.show-day { font: 700 14px/1.1 var(--font-display); color: var(--fg); text-transform: uppercase; letter-spacing: 0.02em; }
+.show-date { font: 500 10px/1 var(--font-mono); color: var(--faint); margin-top: 3px; }
 .show-time { font: 500 12px/1 var(--font-mono); color: var(--accent); margin-top: 4px; }
 .show-call { font: 400 10px/1 var(--font-mono); color: var(--faint); margin-top: 2px; }
 

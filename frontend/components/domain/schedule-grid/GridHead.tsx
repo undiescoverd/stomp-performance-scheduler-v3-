@@ -44,8 +44,8 @@ export function GridHead({ shows, assignedShowIds, onStatusChange, onRemove }: G
         <th className="row-label">Date</th>
         {shows.map((s) => (
           <th key={s.id}>
-            <div className="show-date">{shortDate(s.date)}</div>
             <div className="show-day">{dowShort(s.date)}</div>
+            <div className="show-date">{shortDate(s.date)}</div>
             {s.status === "show" ? (
               <>
                 <div className="show-time">{fmtTime(s.time)}</div>
