@@ -151,13 +151,20 @@ inventing one.
 days they never had — a Monday column on the Tue–Sun default week, a Sunday column
 on tour-generated Mon–Sat weeks. This is intended.
 
-### 3a. A week can span two cities
+### 3a. The header, and weeks that span two cities
+
+The header is redesigned for **every** week, not only split ones: the STOMP wordmark
+is pinned hard left, and the city name becomes the largest thing on the sheet, spanning
+the columns it covers. A single-city week gets one span across all seven days. This
+mirrors the paper call sheets and replaces today's centered
+`STOMP · London · Week 29` line, which buries the one fact a touring company reads
+first: where they are.
+
+The divider is the split-week *addition* to that layout, not the reason for it.
 
 "Wednesday travel **to another city**" is half the requirement and the app cannot
 express it: `Schedule.location` is a single string, and per-day location does not
-exist (`TourWeek.locationCity` is per week). The paper call sheets have solved this
-for years — the wordmark sits hard left, and city names run large across the columns
-they cover, divided where the company moves.
+exist (`TourWeek.locationCity` is per week).
 
 `Show` gains an optional `location?: string`. The masthead groups consecutive columns
 by resolved city and spans one cell per group, which produces the divider for free.
@@ -232,11 +239,27 @@ a derived value and is not one.
 - An unflagged dark day is inert: the v3.1 fairness path runs and places twelve
   personal RED days across the show days.
 - When the fairness path cannot give every performer a RED day, it emits a
-  non-critical warning. Capacity is `showDates × (castSize − roleCount)` — twelve
-  performers against eight roles seats four per show day — so the awkward week's
-  four show days give capacity sixteen against a need of twelve.
+  non-critical warning.
 - The warning code must **not** join `CRITICAL_RULE_CODES`, so it cannot trip the
   auto-generate retry gate.
+
+**Capacity is an upper bound, not a guarantee.** `showDates × (castSize − roleCount)`
+— four performers off per show day, sixteen across the awkward week's four show days,
+against a need of twelve — holds only for *single*-show days. On a double, a performer
+must be off **both** shows to have a real day off, and seating four people off both
+requires the same eight to work both shows, which fights the consecutive-show and
+fatigue rules. Three of the awkward week's four show days are doubles. Treat the
+formula as a ceiling when deciding whether to warn, and expect the true figure to be
+lower.
+
+**The unflagged path is unproven.** The five-run experiment that produced twelve RED
+days on the dark day ran against *today's* code, where the `isCompanyRedDay` filter
+does not exist — it demonstrates the bug, not the fix. Nobody has yet observed the
+fairness path distribute twelve personal RED days across a sparse week, because it is
+currently unreachable whenever a dark day exists. **The first task of M3 is to make
+that path run on the awkward week and record what it actually does.** It may be
+infeasible there, which is precisely why the warning exists. Do not plan M3 on the
+assumption that it succeeds.
 
 ### 8. Non-destructive editing
 
@@ -332,7 +355,11 @@ Claims in this spec that were checked against running code rather than reasoned 
 
 - The algorithm generates the awkward week successfully, five runs from five, with all
   eight roles filled on all seven shows.
-- All twelve RED days land on the dark day, confirming the `assignRedDays` fork.
+- All twelve RED days land on the dark day, confirming the `assignRedDays` fork —
+  observed against current code, which demonstrates the bug and says nothing about
+  whether the fixed path can seat everyone.
 - Saves are explicit; nothing autosaves.
 - Forward-filling the city of an empty day drags it across the divider; backward-filling
   does not.
+
+Everything else here is design intent, including the capacity arithmetic in §7.
