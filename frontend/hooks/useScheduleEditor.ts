@@ -5,6 +5,7 @@ import backend from '~backend/client';
 import type { Show, Assignment, Role, DayStatus } from '~backend/scheduler/types';
 import { useToast } from '@/components/ui/use-toast';
 import { isoDate } from '@/components/domain/format';
+import { nextShow, resetShowTimes, sortShows } from '@/components/domain/week';
 
 export function useScheduleEditor(id?: string) {
   const navigate = useNavigate();
@@ -444,56 +445,11 @@ export function useScheduleEditor(id?: string) {
     ));
   };
 
-  const addDaysIso = (date: string, n: number): string =>
-    new Date(new Date(`${date}T00:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
-
-  // Chronological, matinee before evening. Travel columns carry a non-HH:MM
-  // time, so park them at the end of their own date.
-  const showSortKey = (s: Show) =>
-    `${isoDate(s.date)} ${/^\d{2}:\d{2}$/.test(s.time) ? s.time : '99:99'}`;
-  const sortShows = (list: Show[]): Show[] =>
-    [...list].sort((a, b) => showSortKey(a).localeCompare(showSortKey(b)));
-
-  const onDate = (list: Show[], date: string) => list.filter(s => isoDate(s.date) === date);
-
-  /**
-   * Restores the first baseline slot the week is currently missing — the undo
-   * for Remove Day. A date is "short" when it holds fewer shows than the
-   * baseline gave it; within that date we restore the slot whose time is absent,
-   * so removing a Saturday matinee brings back the matinee and not a second
-   * evening. Once the baseline is whole, extend the week by a day instead.
-   */
+  /** Undo for Remove Day: restore the next slot the week is missing. See `nextShow`. */
   const handleAddShow = () => {
     const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
-
-    const baseline = baselineShows.current;
-    const baselineDates = [...new Set(baseline.map(s => isoDate(s.date)))].sort();
-
-    let slot: Show | undefined;
-    for (const date of baselineDates) {
-      const want = onDate(baseline, date);
-      const have = onDate(shows, date);
-      if (have.length >= want.length) continue;
-      const haveTimes = new Set(have.map(s => s.time));
-      slot = want.find(s => !haveTimes.has(s.time)) ?? want[have.length];
-      break;
-    }
-
-    if (slot) {
-      setShows(prev => sortShows([...prev, { ...slot!, id: generateId() }]));
-      return;
-    }
-
-    // Baseline intact — grow the week past its last day.
-    const last = shows.map(s => isoDate(s.date)).sort().pop();
-    const date = last ? addDaysIso(last, 1) : formatDateForInput(new Date());
-    const newShow: Show = {
-      id: generateId(),
-      date,
-      status: 'show',
-      ...getDefaultShowTimes(date, onDate(shows, date).length),
-    };
-    setShows(prev => sortShows([...prev, newShow]));
+    const slot = nextShow(baselineShows.current, shows);
+    setShows(prev => sortShows([...prev, { ...slot, id: generateId() }]));
   };
 
   // Confirmation lives with the control in GridHead, not here.
@@ -502,45 +458,8 @@ export function useScheduleEditor(id?: string) {
     setAssignments(prev => prev.filter(a => a.showId !== showId));
   };
 
-  /**
-   * Default times for a show by weekday. `occurrence` disambiguates the
-   * two-show days (Sat/Sun): 0 is the matinee, 1 the evening. Dates are
-   * generated as UTC midnight, so read the weekday in UTC too.
-   */
-  const getDefaultShowTimes = (date: string, occurrence = 0): { time: string; callTime: string } => {
-    switch (new Date(`${isoDate(date)}T00:00:00Z`).getUTCDay()) {
-      case 2: // Tuesday
-        return { time: '20:00', callTime: '17:00' };
-      case 3: // Wednesday
-      case 4: // Thursday
-      case 5: // Friday
-        return { time: '20:00', callTime: '18:00' };
-      case 6: // Saturday - matinee then evening
-        return occurrence === 0
-          ? { time: '15:00', callTime: '13:30' }
-          : { time: '20:00', callTime: '18:00' };
-      case 0: // Sunday - matinee then evening
-        return occurrence === 0
-          ? { time: '15:00', callTime: '13:30' }
-          : { time: '18:00', callTime: '16:30' };
-      default:
-        return { time: '20:00', callTime: '18:00' };
-    }
-  };
-
   /** Resets times only; travel and day-off columns keep their status. */
-  const handleResetShowTimes = () => {
-    setShows(prev => {
-      const seenPerDate = new Map<string, number>();
-      return prev.map(show => {
-        const date = isoDate(show.date);
-        const occurrence = seenPerDate.get(date) ?? 0;
-        seenPerDate.set(date, occurrence + 1);
-        if (show.status !== 'show') return show;
-        return { ...show, ...getDefaultShowTimes(date, occurrence) };
-      });
-    });
-  };
+  const handleResetShowTimes = () => setShows(resetShowTimes);
 
   // Handle assignment updates from the grid (for RED day toggles)
   const handleAssignmentUpdate = (updatedAssignments: Assignment[]) => {
