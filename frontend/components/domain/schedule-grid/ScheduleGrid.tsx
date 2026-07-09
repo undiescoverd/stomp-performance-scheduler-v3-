@@ -1,5 +1,4 @@
 import { CircleSlash } from "lucide-react";
-import { FEMALE_ONLY_ROLES } from "~backend/scheduler/types";
 import type { Show, Assignment, CastMember, Role } from "~backend/scheduler/types";
 import { GridHead } from "./GridHead";
 import { AssignmentCell } from "./AssignmentCell";
@@ -16,6 +15,8 @@ interface ScheduleGridProps {
   week: string;
   onAssignmentChange: (showId: string, role: Role, performer: string) => void;
   onToggleRedDay: (date: string, performer: string) => void;
+  onShowStatusChange: (showId: string, status: Show["status"]) => void;
+  onRemoveShow: (showId: string) => void;
 }
 
 export function ScheduleGrid({
@@ -27,8 +28,11 @@ export function ScheduleGrid({
   week,
   onAssignmentChange,
   onToggleRedDay,
+  onShowStatusChange,
+  onRemoveShow,
 }: ScheduleGridProps) {
   const showShows = shows.filter((s) => s.status === "show");
+  const assignedShowIds = new Set(assignments.filter((a) => a.role !== "OFF").map((a) => a.showId));
   const conflictsByShow = new Map(shows.map((s) => [s.id, showConflicts(assignments, s.id)]));
   const hasAssignments = assignments.length > 0;
   const maxOff = hasAssignments
@@ -43,7 +47,12 @@ export function ScheduleGrid({
       </div>
       <div className="grid-scroll">
         <table className="grid-table">
-          <GridHead shows={shows} />
+          <GridHead
+            shows={shows}
+            assignedShowIds={assignedShowIds}
+            onStatusChange={onShowStatusChange}
+            onRemove={onRemoveShow}
+          />
           <tbody>
             <tr className="grid-divider">
               <td />
@@ -54,14 +63,11 @@ export function ScheduleGrid({
 
             {roles.map((role) => {
               const elig = castMembers.filter((m) => m.eligibleRoles.includes(role));
-              const female = FEMALE_ONLY_ROLES.includes(role);
               return (
                 <tr key={role}>
                   <td className="role-label">
                     {role}
-                    <span className="role-elig">
-                      {elig.length} eligible{female ? " · female" : ""}
-                    </span>
+                    <span className="role-elig">{elig.length} eligible</span>
                   </td>
                   {shows.map((show) => {
                     if (show.status !== "show") {

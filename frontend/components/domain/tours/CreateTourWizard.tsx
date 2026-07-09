@@ -29,6 +29,35 @@ function addDays(iso: string, n: number): string {
   );
 }
 
+type TravelDay = NonNullable<TourWeek["travelDay"]>;
+
+/**
+ * How many of the standard week's 8 shows a travel day costs. Mirrors the
+ * backend's baseSchedule in scheduler/tours.ts: Mon-Sat with matinees on
+ * Wednesday and Saturday, Sunday already dark.
+ */
+const SHOWS_LOST: Record<TravelDay, number> = {
+  none: 0,
+  monday: 1,
+  tuesday: 1,
+  wednesday: 2,
+  thursday: 1,
+  friday: 1,
+  saturday: 2,
+  sunday: 0,
+};
+
+const TRAVEL_DAYS: { value: TravelDay; label: string }[] = [
+  { value: "none", label: "No travel day" },
+  { value: "monday", label: "Travel Monday" },
+  { value: "tuesday", label: "Travel Tuesday" },
+  { value: "wednesday", label: "Travel Wednesday" },
+  { value: "thursday", label: "Travel Thursday" },
+  { value: "friday", label: "Travel Friday" },
+  { value: "saturday", label: "Travel Saturday" },
+  { value: "sunday", label: "Travel Sunday" },
+];
+
 function weekNumberOf(iso: string): number {
   const d = parseLocalDate(iso);
   const start = new Date(d.getFullYear(), 0, 1);
@@ -43,6 +72,7 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
   const [startDate, setStartDate] = useState("");
   const [weekCount, setWeekCount] = useState(4);
   const [cities, setCities] = useState<string[]>(["", "", "", ""]);
+  const [travelDays, setTravelDays] = useState<TravelDay[]>(["none", "none", "none", "none"]);
 
   useEffect(() => {
     if (!open) return;
@@ -51,6 +81,7 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
     setStartDate("");
     setWeekCount(4);
     setCities(["", "", "", ""]);
+    setTravelDays(["none", "none", "none", "none"]);
   }, [open]);
 
   const setCount = (n: number) => {
@@ -59,6 +90,11 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
     setCities((prev) => {
       const next = prev.slice(0, clamped);
       while (next.length < clamped) next.push("");
+      return next;
+    });
+    setTravelDays((prev) => {
+      const next = prev.slice(0, clamped);
+      while (next.length < clamped) next.push("none");
       return next;
     });
   };
@@ -82,7 +118,7 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
         endDate: wEnd,
         locationCity: cities[i].trim(),
         isStandard: true,
-        travelDay: "none",
+        travelDay: travelDays[i] ?? "none",
       };
     });
     onCreate({ tourName: tourName.trim(), segmentName: segmentName.trim(), castMemberIds, weeks });
@@ -94,8 +130,9 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
         <DialogHeader>
           <DialogTitle>Create tour segment</DialogTitle>
           <DialogDescription>
-            Configure 1–12 standard weeks. Every week is bulk-generated with role assignments and RED-day fairness for
-            the {castMemberIds.length} active cast.
+            Configure 1–12 weeks. Each is bulk-generated with role assignments and RED-day fairness for the{" "}
+            {castMemberIds.length} active cast. Set a travel day here to drop that day's shows, or shape any week in
+            detail later in its editor.
           </DialogDescription>
         </DialogHeader>
 
@@ -130,25 +167,50 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
           </div>
 
           <div className="stack" style={{ gap: 8 }}>
-            <Label>Venue city per week</Label>
-            {Array.from({ length: weekCount }).map((_, i) => (
-              <div key={i} className="row" style={{ gap: 10 }}>
-                <span className="week-num" style={{ width: 44 }}>
-                  W{startDate ? weekNumberOf(addDays(startDate, 7 * i)) : i + 1}
-                </span>
-                <Input
-                  value={cities[i] ?? ""}
-                  onChange={(e) =>
-                    setCities((prev) => {
-                      const next = [...prev];
-                      next[i] = e.target.value;
-                      return next;
-                    })
-                  }
-                  placeholder={`City for week ${i + 1}`}
-                />
-              </div>
-            ))}
+            <Label>Venue and travel day per week</Label>
+            {Array.from({ length: weekCount }).map((_, i) => {
+              const travelDay = travelDays[i] ?? "none";
+              const shows = 8 - SHOWS_LOST[travelDay];
+              return (
+                <div key={i} className="row" style={{ gap: 10 }}>
+                  <span className="week-num" style={{ width: 44 }}>
+                    W{startDate ? weekNumberOf(addDays(startDate, 7 * i)) : i + 1}
+                  </span>
+                  <Input
+                    value={cities[i] ?? ""}
+                    onChange={(e) =>
+                      setCities((prev) => {
+                        const next = [...prev];
+                        next[i] = e.target.value;
+                        return next;
+                      })
+                    }
+                    placeholder={`City for week ${i + 1}`}
+                  />
+                  <select
+                    className="travel-select"
+                    value={travelDay}
+                    aria-label={`Travel day for week ${i + 1}`}
+                    onChange={(e) =>
+                      setTravelDays((prev) => {
+                        const next = [...prev];
+                        next[i] = e.target.value as TravelDay;
+                        return next;
+                      })
+                    }
+                  >
+                    {TRAVEL_DAYS.map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="week-shows">
+                    {shows} show{shows === 1 ? "" : "s"}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
 

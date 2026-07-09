@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import backend from '~backend/client';
@@ -15,6 +15,13 @@ export function useScheduleEditor(id?: string) {
   const [week, setWeek] = useState('');
   const [weekStartDate, setWeekStartDate] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
+  /**
+   * The week as it arrived (loaded from the backend, or the standard seed for a
+   * new schedule). "Add Show" restores slots from this, so removing a day is
+   * undoable even though the grid has no editable date or time field. It is not
+   * the standard week: a tour week that arrives Mon-Sat restores as Mon-Sat.
+   */
+  const baselineShows = useRef<Show[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -247,7 +254,9 @@ export function useScheduleEditor(id?: string) {
       // datetime ("...T00:00:00.000Z"), which breaks the backend's YYYY-MM-DD
       // date rules (auto-gen avoidance AND validation). Normalize to plain
       // calendar-date strings on load so every outgoing payload stays clean.
-      setShows(schedule.shows.map((s) => ({ ...s, date: isoDate(s.date) })));
+      const loaded = schedule.shows.map((s) => ({ ...s, date: isoDate(s.date) }));
+      setShows(loaded);
+      baselineShows.current = loaded;
       setAssignments(schedule.assignments);
 
       // Calculate week start date from first show (guard against malformed
@@ -277,6 +286,7 @@ export function useScheduleEditor(id?: string) {
       // Generate default shows
       const defaultShows = generateShowsFromWeekStart(formatDateForInput(nextMonday));
       setShows(defaultShows);
+      baselineShows.current = defaultShows;
     }
   }, [isEditing]);
 
@@ -434,72 +444,102 @@ export function useScheduleEditor(id?: string) {
     ));
   };
 
+  const addDaysIso = (date: string, n: number): string =>
+    new Date(new Date(`${date}T00:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
+
+  // Chronological, matinee before evening. Travel columns carry a non-HH:MM
+  // time, so park them at the end of their own date.
+  const showSortKey = (s: Show) =>
+    `${isoDate(s.date)} ${/^\d{2}:\d{2}$/.test(s.time) ? s.time : '99:99'}`;
+  const sortShows = (list: Show[]): Show[] =>
+    [...list].sort((a, b) => showSortKey(a).localeCompare(showSortKey(b)));
+
+  const onDate = (list: Show[], date: string) => list.filter(s => isoDate(s.date) === date);
+
+  /**
+   * Restores the first baseline slot the week is currently missing — the undo
+   * for Remove Day. A date is "short" when it holds fewer shows than the
+   * baseline gave it; within that date we restore the slot whose time is absent,
+   * so removing a Saturday matinee brings back the matinee and not a second
+   * evening. Once the baseline is whole, extend the week by a day instead.
+   */
   const handleAddShow = () => {
     const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
-    const lastShow = shows[shows.length - 1];
-    const nextDate = lastShow ?
-      new Date(new Date(lastShow.date).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] :
-      new Date().toISOString().split('T')[0];
+    const baseline = baselineShows.current;
+    const baselineDates = [...new Set(baseline.map(s => isoDate(s.date)))].sort();
 
+    let slot: Show | undefined;
+    for (const date of baselineDates) {
+      const want = onDate(baseline, date);
+      const have = onDate(shows, date);
+      if (have.length >= want.length) continue;
+      const haveTimes = new Set(have.map(s => s.time));
+      slot = want.find(s => !haveTimes.has(s.time)) ?? want[have.length];
+      break;
+    }
+
+    if (slot) {
+      setShows(prev => sortShows([...prev, { ...slot!, id: generateId() }]));
+      return;
+    }
+
+    // Baseline intact — grow the week past its last day.
+    const last = shows.map(s => isoDate(s.date)).sort().pop();
+    const date = last ? addDaysIso(last, 1) : formatDateForInput(new Date());
     const newShow: Show = {
       id: generateId(),
-      date: nextDate,
-      time: '21:00',
-      callTime: '19:00',
-      status: 'show'
+      date,
+      status: 'show',
+      ...getDefaultShowTimes(date, onDate(shows, date).length),
     };
-
-    setShows(prev => [...prev, newShow]);
+    setShows(prev => sortShows([...prev, newShow]));
   };
 
+  // Confirmation lives with the control in GridHead, not here.
   const handleRemoveShow = (showId: string) => {
-    if (confirm('Are you sure you want to remove this show?')) {
-      setShows(prev => prev.filter(show => show.id !== showId));
-      setAssignments(prev => prev.filter(a => a.showId !== showId));
-    }
+    setShows(prev => prev.filter(show => show.id !== showId));
+    setAssignments(prev => prev.filter(a => a.showId !== showId));
   };
 
-  // Helper function to get default show times based on day of week
-  const getDefaultShowTimes = (date: string): { time: string; callTime: string } => {
-    const showDate = new Date(date);
-    const dayOfWeek = showDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
-
-    switch (dayOfWeek) {
-      case 2: // Tuesday - 8pm Show, 5pm Call
+  /**
+   * Default times for a show by weekday. `occurrence` disambiguates the
+   * two-show days (Sat/Sun): 0 is the matinee, 1 the evening. Dates are
+   * generated as UTC midnight, so read the weekday in UTC too.
+   */
+  const getDefaultShowTimes = (date: string, occurrence = 0): { time: string; callTime: string } => {
+    switch (new Date(`${isoDate(date)}T00:00:00Z`).getUTCDay()) {
+      case 2: // Tuesday
         return { time: '20:00', callTime: '17:00' };
-      case 3: // Wednesday - 8pm Show, 6pm Call
-      case 4: // Thursday - 8pm Show, 6pm Call
-      case 5: // Friday - 8pm Show, 6pm Call
+      case 3: // Wednesday
+      case 4: // Thursday
+      case 5: // Friday
         return { time: '20:00', callTime: '18:00' };
-      case 6: // Saturday - depends on if it's matinee or evening
-        // For Saturday, we need to check if this is the first or second show of the day
-        const saturdayShows = shows.filter(s => s.date === date);
-        const isMatinee = saturdayShows.length === 0 || saturdayShows.some(s => s.time === '15:00');
-        return isMatinee ?
-          { time: '15:00', callTime: '13:30' } : // Matinee
-          { time: '20:00', callTime: '18:00' };   // Evening
-      case 0: // Sunday - depends on if it's matinee or evening
-        const sundayShows = shows.filter(s => s.date === date);
-        const isSundayMatinee = sundayShows.length === 0 || sundayShows.some(s => s.time === '15:00');
-        return isSundayMatinee ?
-          { time: '15:00', callTime: '13:30' } : // Matinee
-          { time: '18:00', callTime: '16:30' };   // Evening
+      case 6: // Saturday - matinee then evening
+        return occurrence === 0
+          ? { time: '15:00', callTime: '13:30' }
+          : { time: '20:00', callTime: '18:00' };
+      case 0: // Sunday - matinee then evening
+        return occurrence === 0
+          ? { time: '15:00', callTime: '13:30' }
+          : { time: '18:00', callTime: '16:30' };
       default:
-        return { time: '20:00', callTime: '18:00' }; // Default fallback
+        return { time: '20:00', callTime: '18:00' };
     }
   };
 
+  /** Resets times only; travel and day-off columns keep their status. */
   const handleResetShowTimes = () => {
-    setShows(prev => prev.map(show => {
-      const defaultTimes = getDefaultShowTimes(show.date);
-      return {
-        ...show,
-        time: defaultTimes.time,
-        callTime: defaultTimes.callTime,
-        status: 'show' as const
-      };
-    }));
+    setShows(prev => {
+      const seenPerDate = new Map<string, number>();
+      return prev.map(show => {
+        const date = isoDate(show.date);
+        const occurrence = seenPerDate.get(date) ?? 0;
+        seenPerDate.set(date, occurrence + 1);
+        if (show.status !== 'show') return show;
+        return { ...show, ...getDefaultShowTimes(date, occurrence) };
+      });
+    });
   };
 
   // Handle assignment updates from the grid (for RED day toggles)

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Download, Save, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Plus, Save, Wand2 } from "lucide-react";
 import { useScheduleEditor } from "@/hooks/useScheduleEditor";
 import { useScheduleValidation } from "@/hooks/useScheduleValidation";
 import { ScheduleGrid } from "@/components/domain/schedule-grid/ScheduleGrid";
@@ -99,6 +99,9 @@ export function ScheduleEditorScreen() {
           <button className="btn btn-primary btn-sm" onClick={editor.handleAutoGenerate} disabled={editor.isGenerating}>
             <Wand2 /> {editor.isGenerating ? "Generating…" : "Auto Generate"}
           </button>
+          <button className="btn btn-ghost btn-sm" onClick={editor.handleAddShow}>
+            <Plus /> Add Show
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={editor.handleClearAll}>
             Clear All
           </button>
@@ -121,6 +124,8 @@ export function ScheduleEditorScreen() {
           week={editor.week}
           onAssignmentChange={editor.handleAssignmentChange}
           onToggleRedDay={editor.handleToggleRedDay}
+          onShowStatusChange={editor.handleShowStatusChange}
+          onRemoveShow={editor.handleRemoveShow}
         />
       </div>
 

@@ -538,6 +538,27 @@
 .assign-select.conflict { border-color: var(--red); background: var(--red-soft); color: var(--red-fg); box-shadow: 0 0 0 2px var(--red-soft); }
 .assign-select:disabled { cursor: default; opacity: .55; }
 
+/* day status select (grid header) - reads as a pill, behaves as a control */
+.status-select {
+  width: 100%;
+  min-width: 92px;
+  height: 26px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  padding: 0 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .14s, background .14s, box-shadow .14s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.status-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.status-select.is-show { background: var(--green-soft); color: var(--green-fg); border-color: var(--green-line); }
+.status-select.is-travel { background: var(--amber-soft); color: var(--amber-fg); border-color: var(--amber-line); }
+.status-select.is-dayoff { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+
 /* special day cell content */
 .cell-special { padding: 6px; text-align: center; vertical-align: middle; }
 .special-box {
@@ -670,6 +691,30 @@
 }
 .week-row:hover { border-color: var(--accent-line); background: var(--accent-soft); }
 .week-num { font: 700 13px/1 var(--font-mono); color: var(--accent); letter-spacing: 0.04em; width: 64px; }
+
+/* per-week travel day picker (create tour wizard) */
+.travel-select {
+  height: 36px;
+  flex: 0 0 auto;
+  min-width: 168px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  font: 500 13px/1 var(--font-body);
+  padding: 0 10px;
+  cursor: pointer;
+  transition: border-color .14s, box-shadow .14s;
+}
+.travel-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.week-shows {
+  flex: 0 0 auto;
+  width: 62px;
+  text-align: right;
+  font: 500 12px/1 var(--font-mono);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .week-loc { font: 600 14px/1.1 var(--font-display); }
 .week-date { font: 500 12px/1 var(--font-mono); color: var(--muted); }
 
