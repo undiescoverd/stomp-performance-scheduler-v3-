@@ -1,8 +1,13 @@
 # Custom Week Shaping — Design
 
 **Date:** 2026-07-10
-**Status:** Approved, ready for implementation planning
+**Status:** M1 and M2 shipped (`645c0fa`, `915d7f1`). M3 and M4 outstanding.
 **Branch:** `feat/custom-week-shaping` (off `fix/scheduler-remediation-v3.2`)
+
+One correction found in the build: an emptied column borrows its city from the
+day after it, but a column that *holds a show* and simply names no city takes the
+schedule's city rather than borrowing from a neighbour. Only empty columns borrow.
+A test caught Thursday inheriting Friday's Leeds instead of falling back to London.
 
 ## Problem
 
