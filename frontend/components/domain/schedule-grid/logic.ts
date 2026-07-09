@@ -114,6 +114,30 @@ export function analyzeFatigue(
   return issues;
 }
 
+export interface RosterEntry {
+  name: string;
+  showCount: number;
+}
+
+/** Company roster with each performer's stage-show count for this week, sorted by name. */
+export function rosterShowCounts(
+  assignments: Assignment[],
+  shows: Show[],
+  castMembers: CastMember[],
+): RosterEntry[] {
+  const activeIds = new Set(shows.filter((s) => s.status === "show").map((s) => s.id));
+  const showsByPerf = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    if (a.role === "OFF" || !activeIds.has(a.showId)) continue;
+    const set = showsByPerf.get(a.performer) ?? new Set<string>();
+    set.add(a.showId);
+    showsByPerf.set(a.performer, set);
+  }
+  return castMembers
+    .map((m) => ({ name: m.name, showCount: showsByPerf.get(m.name)?.size ?? 0 }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export interface GridAnalytics {
   showCount: number;
   filled: number;

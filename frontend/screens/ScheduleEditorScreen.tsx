@@ -7,7 +7,7 @@ import { ScheduleGrid } from "@/components/domain/schedule-grid/ScheduleGrid";
 import { FairnessMeter } from "@/components/domain/schedule-grid/FairnessMeter";
 import { AnalyticsStrip } from "@/components/domain/schedule-grid/AnalyticsStrip";
 import { ViolationBanner } from "@/components/domain/schedule-grid/ViolationBanner";
-import { analyzeFatigue, gridAnalytics } from "@/components/domain/schedule-grid/logic";
+import { analyzeFatigue, gridAnalytics, rosterShowCounts } from "@/components/domain/schedule-grid/logic";
 import { dateRange, weekLabel } from "@/components/domain/format";
 import { SchedulePDFExporter } from "@/utils/pdfExport";
 import { useToast } from "@/components/ui/use-toast";
@@ -24,6 +24,7 @@ export function ScheduleEditorScreen() {
 
   const fatigueIssues = analyzeFatigue(editor.assignments, editor.shows, castMembers);
   const analytics = gridAnalytics(editor.assignments, editor.shows, roles);
+  const roster = rosterShowCounts(editor.assignments, editor.shows, castMembers);
   const showCount = editor.shows.filter((s) => s.status === "show").length;
 
   // Live (debounced) validation against the override-aware backend endpoint.
@@ -127,6 +128,7 @@ export function ScheduleEditorScreen() {
         result={validation.result}
         isValidating={validation.isValidating}
         fatigueIssues={fatigueIssues}
+        roster={roster}
         onToggleOverride={editor.handleToggleOverride}
       />
 

@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, CheckCircle2, ShieldCheck, Flag } from "lucide-react";
+import { AlertCircle, AlertTriangle, ShieldCheck, Flag, Users } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -10,7 +10,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import type { FatigueIssue } from "./logic";
+import type { FatigueIssue, RosterEntry } from "./logic";
 
 export interface ValidationResult {
   isValid: boolean;
@@ -22,6 +22,7 @@ interface ViolationBannerProps {
   result: ValidationResult | null;
   isValidating: boolean;
   fatigueIssues: FatigueIssue[];
+  roster: RosterEntry[];
   onToggleOverride: (performer: string) => void;
 }
 
@@ -32,10 +33,9 @@ const KIND_LABEL: Record<FatigueIssue["kind"], string> = {
 
 const MAX_ROWS = 8;
 
-export function ViolationBanner({ result, isValidating, fatigueIssues, onToggleOverride }: ViolationBannerProps) {
-  if (!result) return null;
-  const { errors, warnings } = result;
-  const allClear = errors.length === 0 && warnings.length === 0;
+export function ViolationBanner({ result, isValidating, fatigueIssues, roster, onToggleOverride }: ViolationBannerProps) {
+  const errors = result?.errors ?? [];
+  const warnings = result?.warnings ?? [];
 
   // Collapse fatigue issues to one row per performer.
   const byPerformer = new Map<string, { kinds: Set<string>; overridden: boolean }>();
@@ -46,26 +46,39 @@ export function ViolationBanner({ result, isValidating, fatigueIssues, onToggleO
     byPerformer.set(f.performer, entry);
   }
   const fatiguePerformers = [...byPerformer.entries()];
+  const hasIssues = errors.length > 0 || warnings.length > 0 || fatiguePerformers.length > 0;
+  const showValidationHalf = isValidating || hasIssues;
 
   return (
-    <div className="violation-card mt-16">
-      <div className="violation-head">
-        <ShieldCheck />
-        Validation
-        <span className="violation-count">
-          {isValidating
-            ? "checking…"
-            : `${errors.length} error${errors.length === 1 ? "" : "s"} · ${warnings.length} warning${warnings.length === 1 ? "" : "s"}`}
-        </span>
+    <div className="split-card mt-16">
+      <div className="split-half">
+        <div className="violation-head">
+          <Users />
+          Company roster
+          <span className="violation-count">{roster.length}</span>
+        </div>
+        {roster.map((r) => (
+          <div key={r.name} className="roster-row">
+            <span className="name">{r.name}</span>
+            <span className={r.showCount === 0 ? "count zero" : "count"}>
+              {r.showCount} show{r.showCount === 1 ? "" : "s"}
+            </span>
+          </div>
+        ))}
       </div>
 
-      {allClear ? (
-        <div className="violation-row ok">
-          <CheckCircle2 className="v-ico" />
-          <div className="v-msg">Schedule valid — all constraints satisfied.</div>
-        </div>
-      ) : (
-        <>
+      {showValidationHalf ? (
+        <div className="split-half">
+          <div className="violation-head">
+            <ShieldCheck />
+            Validation
+            <span className="violation-count">
+              {isValidating
+                ? "checking…"
+                : `${errors.length} error${errors.length === 1 ? "" : "s"} · ${warnings.length} warning${warnings.length === 1 ? "" : "s"}`}
+            </span>
+          </div>
+
           {errors.slice(0, MAX_ROWS).map((e, i) => (
             <div key={`e${i}`} className="violation-row error">
               <AlertCircle className="v-ico" />
@@ -86,31 +99,31 @@ export function ViolationBanner({ result, isValidating, fatigueIssues, onToggleO
               </div>
             </div>
           ) : null}
-        </>
-      )}
 
-      {fatiguePerformers.map(([performer, info]) => (
-        <div key={performer} className="violation-row fatigue">
-          <Flag className="v-ico" style={{ color: "var(--amber)" }} />
-          <div className="v-msg">
-            <b>{performer}</b> — {[...info.kinds].join(", ")}
-            {info.overridden ? (
-              <span className="v-sub">RD injury/sickness override applied — reported as a warning, not an error.</span>
-            ) : (
-              <span className="v-sub">Fatigue violation. Apply an RD override only for a genuine injury/sickness cover.</span>
-            )}
-          </div>
-          <div className="v-action">
-            {info.overridden ? (
-              <button className="btn btn-ghost btn-sm" onClick={() => onToggleOverride(performer)}>
-                Remove override
-              </button>
-            ) : (
-              <OverrideConfirm performer={performer} onConfirm={() => onToggleOverride(performer)} />
-            )}
-          </div>
+          {fatiguePerformers.map(([performer, info]) => (
+            <div key={performer} className="violation-row fatigue">
+              <Flag className="v-ico" style={{ color: "var(--amber)" }} />
+              <div className="v-msg">
+                <b>{performer}</b> — {[...info.kinds].join(", ")}
+                {info.overridden ? (
+                  <span className="v-sub">RD injury/sickness override applied — reported as a warning, not an error.</span>
+                ) : (
+                  <span className="v-sub">Fatigue violation. Apply an RD override only for a genuine injury/sickness cover.</span>
+                )}
+              </div>
+              <div className="v-action">
+                {info.overridden ? (
+                  <button className="btn btn-ghost btn-sm" onClick={() => onToggleOverride(performer)}>
+                    Remove override
+                  </button>
+                ) : (
+                  <OverrideConfirm performer={performer} onConfirm={() => onToggleOverride(performer)} />
+                )}
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      ) : null}
     </div>
   );
 }

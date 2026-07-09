@@ -22,7 +22,7 @@ export const validate = api<ValidateScheduleRequest, ValidateScheduleResponse>(
     const castData = await getCastMembers();
     
     const algorithm = new SchedulingAlgorithm(req.shows, castData.castMembers);
-    const result = algorithm.validateSchedule(req.assignments);
+    const result = algorithm.validateSchedule(req.assignments, { ignoreUnstartedShows: true });
     
     return {
       isValid: result.isValid,

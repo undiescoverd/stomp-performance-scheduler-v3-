@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { showConflicts, analyzeFatigue, gridAnalytics } from "./logic";
+import { showConflicts, analyzeFatigue, gridAnalytics, rosterShowCounts } from "./logic";
 import type { Show, Assignment, CastMember } from "~backend/scheduler/types";
 
 const show = (id: string, date: string): Show => ({ id, date, time: "19:30", callTime: "18:00", status: "show" });
@@ -65,5 +65,49 @@ describe("gridAnalytics", () => {
     expect(a.totalSlots).toBe(2);
     expect(a.conflicts).toBe(0);
     expect(a.redCovered).toBe(1);
+  });
+});
+
+describe("rosterShowCounts", () => {
+  it("returns every cast member, alphabetically, with 0 shows on a clean-slate schedule", () => {
+    const shows = [show("s1", "2025-08-05"), show("s2", "2025-08-06")];
+    const roster = rosterShowCounts([], shows, cast);
+    expect(roster).toEqual([
+      { name: "ALEX", showCount: 0 },
+      { name: "SAM", showCount: 0 },
+    ]);
+  });
+
+  it("counts one show per unique stage assignment, ignoring OFF and duplicate roles", () => {
+    const shows = [show("s1", "2025-08-05"), show("s2", "2025-08-06")];
+    const assigns: Assignment[] = [
+      { showId: "s1", role: "Sarge", performer: "ALEX" },
+      { showId: "s2", role: "Sarge", performer: "ALEX" },
+      { showId: "s2", role: "OFF", performer: "SAM", isRedDay: true },
+    ];
+    const roster = rosterShowCounts(assigns, shows, cast);
+    expect(roster).toEqual([
+      { name: "ALEX", showCount: 2 },
+      { name: "SAM", showCount: 0 },
+    ]);
+  });
+
+  it("does not count assignments on travel or company-day-off days", () => {
+    const shows: Show[] = [
+      show("s1", "2025-08-05"),
+      { ...show("s2", "2025-08-06"), status: "travel" },
+      { ...show("s3", "2025-08-07"), status: "dayoff" },
+    ];
+    const assigns: Assignment[] = [
+      { showId: "s1", role: "Sarge", performer: "ALEX" },
+      { showId: "s2", role: "Sarge", performer: "ALEX" },
+      { showId: "s3", role: "Sarge", performer: "ALEX" },
+      { showId: "s2", role: "Potato", performer: "SAM" },
+    ];
+    const roster = rosterShowCounts(assigns, shows, cast);
+    expect(roster).toEqual([
+      { name: "ALEX", showCount: 1 },
+      { name: "SAM", showCount: 0 },
+    ]);
   });
 });

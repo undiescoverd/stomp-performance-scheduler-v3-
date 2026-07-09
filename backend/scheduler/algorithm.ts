@@ -1447,7 +1447,7 @@ export class SchedulingAlgorithm {
     }
   }
 
-  public validateSchedule(assignments: Assignment[]): ConstraintResult {
+  public validateSchedule(assignments: Assignment[], options?: { ignoreUnstartedShows?: boolean }): ConstraintResult {
     const items: ValidationItem[] = [];
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -1481,25 +1481,34 @@ export class SchedulingAlgorithm {
       
       // Filter only stage assignments (not OFF)
       const stageAssignments = showAssignmentList.filter(a => a.role !== "OFF");
-      
-      // CRITICAL: Check if exactly 8 performers per show
-      const uniquePerformers = new Set(stageAssignments.map(a => a.performer));
-      if (uniquePerformers.size !== 8) {
-        if (uniquePerformers.size < 8) {
-          const missingCount = 8 - uniquePerformers.size;
-          addError("CASTING_INCOMPLETE", `Show ${showDate}: Missing ${missingCount} performer${missingCount > 1 ? 's' : ''} - must have exactly 8 on stage`, { showId: show.id });
-        } else {
-          addError("CASTING_DUPLICATE", `Show ${showDate}: Has ${uniquePerformers.size} performers but can only have 8 - remove duplicate assignments`, { showId: show.id });
-        }
-      }
 
-      // Check if all roles are filled
-      const filledRoles = new Set(stageAssignments.map(a => a.role));
-      if (filledRoles.size !== 8) {
-        if (filledRoles.size < 8) {
-          const missingRoles = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"]
-            .filter(role => !filledRoles.has(role as Role));
-          addError("CASTING_INCOMPLETE", `Show ${showDate}: Missing roles: ${missingRoles.join(", ")} - assign performers to these roles`, { showId: show.id });
+      // An untouched show (no assignments at all) hasn't been started yet -
+      // it's a to-do, not a defect. Display-facing callers (validate.ts,
+      // validate_comprehensive.ts) opt into hiding this noise via
+      // ignoreUnstartedShows; the internal auto-generate retry loop never
+      // sets it, so it still catches a show a bug vacated back to empty.
+      const isUnstartedShow = options?.ignoreUnstartedShows && stageAssignments.length === 0;
+
+      if (!isUnstartedShow) {
+        // CRITICAL: Check if exactly 8 performers per show
+        const uniquePerformers = new Set(stageAssignments.map(a => a.performer));
+        if (uniquePerformers.size !== 8) {
+          if (uniquePerformers.size < 8) {
+            const missingCount = 8 - uniquePerformers.size;
+            addError("CASTING_INCOMPLETE", `Show ${showDate}: Missing ${missingCount} performer${missingCount > 1 ? 's' : ''} - must have exactly 8 on stage`, { showId: show.id });
+          } else {
+            addError("CASTING_DUPLICATE", `Show ${showDate}: Has ${uniquePerformers.size} performers but can only have 8 - remove duplicate assignments`, { showId: show.id });
+          }
+        }
+
+        // Check if all roles are filled
+        const filledRoles = new Set(stageAssignments.map(a => a.role));
+        if (filledRoles.size !== 8) {
+          if (filledRoles.size < 8) {
+            const missingRoles = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"]
+              .filter(role => !filledRoles.has(role as Role));
+            addError("CASTING_INCOMPLETE", `Show ${showDate}: Missing roles: ${missingRoles.join(", ")} - assign performers to these roles`, { showId: show.id });
+          }
         }
       }
 

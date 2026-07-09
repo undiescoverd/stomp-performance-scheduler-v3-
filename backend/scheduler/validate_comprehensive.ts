@@ -75,7 +75,7 @@ export const validateComprehensive = api<ValidateComprehensiveRequest, ValidateC
     const castData = await getCastMembers();
     
     const algorithm = new SchedulingAlgorithm(req.shows, castData.castMembers);
-    const basicValidation = algorithm.validateSchedule(req.assignments);
+    const basicValidation = algorithm.validateSchedule(req.assignments, { ignoreUnstartedShows: true });
     
     const issues: ValidationIssue[] = [];
     const recommendations: string[] = [];

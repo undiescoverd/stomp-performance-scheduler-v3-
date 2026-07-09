@@ -456,6 +456,37 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     });
   });
 
+  describe('ignoreUnstartedShows option (clean-slate validation noise fix)', () => {
+    const doubleWeekend: Show[] = [
+      { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+      { id: 'sat_eve', date: '2024-01-06', time: '21:00', callTime: '18:00', status: 'show' }
+    ];
+
+    it('by default (no option) still flags a fully-empty show as CASTING_INCOMPLETE', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule([]);
+      expect(result.items.filter(i => i.code === 'CASTING_INCOMPLETE').length).toBeGreaterThan(0);
+    });
+
+    it('with ignoreUnstartedShows, a fully-empty show emits no CASTING_INCOMPLETE', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule([], { ignoreUnstartedShows: true });
+      expect(result.items.filter(i => i.code === 'CASTING_INCOMPLETE').length).toBe(0);
+      expect(result.errors.length).toBe(0);
+    });
+
+    it('with ignoreUnstartedShows, a show with at least one assignment still flags missing performers/roles', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule(
+        [{ showId: 'sat_mat', role: 'Sarge' as Role, performer: 'PHIL' }],
+        { ignoreUnstartedShows: true }
+      );
+      expect(result.items.some(i => i.code === 'CASTING_INCOMPLETE' && i.showId === 'sat_mat')).toBe(true);
+      // The untouched sat_eve show is still suppressed.
+      expect(result.items.some(i => i.code === 'CASTING_INCOMPLETE' && i.showId === 'sat_eve')).toBe(false);
+    });
+  });
+
   describe('Data-model & consistency hardening (Phase 6)', () => {
     it('isWeekend is timezone-safe (Saturday is Saturday everywhere)', () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers) as any;
