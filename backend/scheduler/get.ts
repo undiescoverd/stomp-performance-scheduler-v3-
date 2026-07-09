@@ -1,4 +1,6 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "encore.dev/internal/codegen/auth";
+import type { AuthData } from "../auth/encore_auth";
 import { scheduleDB } from "./db";
 import { Schedule, Show, Assignment } from "./types";
 
@@ -12,12 +14,15 @@ export interface GetScheduleResponse {
 
 // Retrieves a schedule by ID.
 export const get = api<GetScheduleRequest, GetScheduleResponse>(
-  { expose: true, method: "GET", path: "/schedules/:id" },
+  { expose: true, method: "GET", path: "/schedules/:id", auth: true },
   async (req) => {
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
     const row = await scheduleDB.queryRow`
       SELECT id, location, week, shows_data, assignments_data, created_at, updated_at
-      FROM schedules 
-      WHERE id = ${req.id}
+      FROM schedules
+      WHERE id = ${req.id} AND user_id = ${userId}
     `;
 
     if (!row) {

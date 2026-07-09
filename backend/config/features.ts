@@ -1,6 +1,6 @@
 /**
  * Feature flags configuration for STOMP Performance Scheduler Backend
- * 
+ *
  * Use these flags to enable/disable features in the backend API.
  */
 
@@ -11,14 +11,14 @@ export const FEATURES = {
    * Controls access to tour-related API endpoints
    * Set to true to enable tours API endpoints
    */
-  MULTI_COUNTRY_TOURS: false,
-  
+  MULTI_COUNTRY_TOURS: true,
+
   /**
    * Authentication functionality
    * Controls whether authentication is enabled
    * Set to false to disable authentication (temporary)
    */
-  AUTHENTICATION_ENABLED: false,
+  AUTHENTICATION_ENABLED: true,
 } as const;
 
 // Environment variable override support
@@ -27,9 +27,9 @@ export const FEATURE_FLAGS = {
    * Check environment variable first, fallback to direct config
    * Environment variable: ENABLE_TOURS=true
    */
-  MULTI_COUNTRY_TOURS: 
+  MULTI_COUNTRY_TOURS:
     process.env.ENABLE_TOURS === 'true' || FEATURES.MULTI_COUNTRY_TOURS,
-    
+
   /**
    * Check environment variable first, fallback to direct config
    * Environment variable: AUTH_ENABLED=true
