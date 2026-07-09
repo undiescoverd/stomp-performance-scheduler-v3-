@@ -30,9 +30,12 @@ export interface ValidationItem {
 
 // Codes that make a generated schedule unusable (must retry / cannot ship).
 // Deliberately excludes RED_DAY_* (RED assignment is a separate post-pass with
-// its own retry signal) and the soft advisory codes.
+// its own retry signal) and the soft advisory codes. GENDER_VIOLATION is also
+// excluded: Bin/Cornish are typically cast with a female performer, but that's
+// a casting convention, not a hard rule, so a mismatch is a warning, not an
+// error.
 const CRITICAL_RULE_CODES: ReadonlySet<RuleCode> = new Set<RuleCode>([
-  "CASTING_INCOMPLETE", "CASTING_DUPLICATE", "ROLE_INELIGIBLE", "GENDER_VIOLATION",
+  "CASTING_INCOMPLETE", "CASTING_DUPLICATE", "ROLE_INELIGIBLE",
   "CONSECUTIVE_EXCEEDED", "BACK_TO_BACK_DOUBLES", "WEEKLY_LIMIT_EXCEEDED"
 ]);
 
@@ -1512,7 +1515,7 @@ export class SchedulingAlgorithm {
         }
       }
 
-      // Check role eligibility with gender constraints
+      // Check role eligibility; flag (but don't block on) an atypical gender pairing.
       for (const assignment of stageAssignments) {
         const castMember = this.castMembers.find(m => m.name === assignment.performer);
         if (!castMember) {
@@ -1520,7 +1523,7 @@ export class SchedulingAlgorithm {
         } else if (!castMember.eligibleRoles.includes(assignment.role as Role)) {
           addError("ROLE_INELIGIBLE", `Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - not in eligible roles`, { performer: assignment.performer, showId: assignment.showId });
         } else if (FEMALE_ONLY_ROLES.includes(assignment.role as Role) && !this.isFemalePerformer(assignment.performer)) {
-          addError("GENDER_VIOLATION", `Show ${showDate}: ${assignment.performer} cannot perform ${assignment.role} - role requires female performer`, { performer: assignment.performer, showId: assignment.showId });
+          addWarning("GENDER_VIOLATION", `Show ${showDate}: ${assignment.performer} is assigned to ${assignment.role}, which is usually cast with a female performer - double-check this assignment`, { performer: assignment.performer, showId: assignment.showId });
         }
       }
 

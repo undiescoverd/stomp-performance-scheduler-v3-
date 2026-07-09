@@ -454,6 +454,20 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
       expect(result.items.some((i: any) => i.code === 'ROLE_INELIGIBLE' && i.severity === 'error')).toBe(true);
       expect(algorithm.hasCriticalErrors(result.items)).toBe(true);
     });
+
+    it('a male performer manually assigned to Bin/Cornish is flagged as a warning, not blocked', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, [
+        ...defaultCastMembers,
+        { name: 'MALEBIN', eligibleRoles: ['Bin'], gender: 'male' as const }
+      ]) as any;
+      const result = algorithm.validateSchedule([{ showId: 'sat_mat', role: 'Bin', performer: 'MALEBIN' }]);
+      const item = result.items.find((i: any) => i.code === 'GENDER_VIOLATION');
+      expect(item).toBeTruthy();
+      expect(item!.severity).toBe('warning');
+      // The GENDER_VIOLATION item alone must not trip the retry gate (unlike
+      // the incomplete-casting errors also present for this partial show).
+      expect(algorithm.hasCriticalErrors([item])).toBe(false);
+    });
   });
 
   describe('ignoreUnstartedShows option (clean-slate validation noise fix)', () => {
@@ -512,12 +526,14 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
       expect(gendered.isFemalePerformer('PHIL')).toBe(false);
     });
 
-    it('a male performer is rejected from a female-only role via the gender field', () => {
+    it('auto-generation still defaults to a female performer for Bin/Cornish', () => {
+      // This governs the auto-generate candidate pool only (see the
+      // GENDER_VIOLATION warning tests above for manual assignment, which is
+      // allowed as a rare exception).
       const algorithm = new SchedulingAlgorithm(weekShows, [
         ...defaultCastMembers,
         { name: 'MALEBIN', eligibleRoles: ['Bin'], gender: 'male' }
       ]) as any;
-      // Even though MALEBIN lists Bin as eligible, the gender guard rejects it.
       expect(algorithm.isPerformerEligibleForRole('MALEBIN', 'Bin')).toBe(false);
     });
   });

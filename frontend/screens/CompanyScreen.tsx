@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Plus, Users, Drama, Layers, Venus } from "lucide-react";
-import { FEMALE_ONLY_ROLES } from "~backend/scheduler/types";
 import type { CompanyMember } from "~backend/scheduler/company";
 import {
   AlertDialog,
@@ -43,14 +42,13 @@ export function CompanyScreen() {
 
   const multiRole = currentCompany.filter((m) => m.eligibleRoles.length > 1).length;
   const femaleCount = currentCompany.filter((m) => m.gender === "female").length;
-  const femaleRoles = roles.filter((r) => FEMALE_ONLY_ROLES.includes(r)).length;
 
   return (
     <>
       <PageHeader
         eyebrow="Cast & Roles"
         title="Company"
-        lead="Performers across the STOMP performance roles. Bin and Cornish are female-only roles; every performer carries exactly one RED day per week."
+        lead="Performers across the STOMP performance roles. Every performer carries exactly one RED day per week."
         actions={
           <button className="btn btn-primary btn-sm" onClick={openAdd}>
             <Plus /> Add Cast Member
@@ -60,7 +58,7 @@ export function CompanyScreen() {
 
       <section className="stats mt-24">
         <StatCard label="Active Cast" value={currentCompany.length} tone="accent" icon={<Users />} delta={`${archive.length} archived`} />
-        <StatCard label="Roles" value={roles.length} tone="green" icon={<Drama />} delta={`${femaleRoles} female-only`} />
+        <StatCard label="Roles" value={roles.length} tone="green" icon={<Drama />} />
         <StatCard label="Multi-role" value={multiRole} tone="pink" icon={<Layers />} delta="eligible > 1 role" />
         <StatCard
           label="Female Cast"
@@ -132,7 +130,7 @@ export function CompanyScreen() {
         <div className="section-head">
           <div>
             <h2 className="h1">Role Eligibility Matrix</h2>
-            <p className="lead mt-8">Which performer can cover which role. Female-only roles are marked in pink.</p>
+            <p className="lead mt-8">Which performer can cover which role.</p>
           </div>
         </div>
         <EligibilityMatrix members={currentCompany} roles={roles} />

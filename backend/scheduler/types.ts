@@ -25,8 +25,9 @@ export interface Assignment {
   isRedDay?: boolean;
   // RD-sanctioned exception (injury/sickness cover). When set, a back-to-back
   // double-days or weekly >6 violation involving this assignment is reported as
-  // a warning instead of an error. Never softens casting/eligibility/gender/
-  // >6-consecutive/RED-day errors.
+  // a warning instead of an error. Never softens casting/eligibility/
+  // >6-consecutive/RED-day errors. (Gender-role mismatches are already
+  // reported as a warning, not an error — see GENDER_VIOLATION.)
   isOverride?: boolean;
 }
 

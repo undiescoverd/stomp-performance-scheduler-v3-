@@ -56,7 +56,7 @@
   --amber-soft: oklch(95% 0.04 65);
   --amber-line: oklch(82% 0.06 65);
   --amber-fg:   oklch(45% 0.11 65);
-  --pink:       oklch(55% 0.16 350);  /* female-only roles */
+  --pink:       oklch(55% 0.16 350);
   --pink-soft:  oklch(95% 0.03 350);
   --pink-line:  oklch(85% 0.04 350);
   --pink-fg:    oklch(45% 0.13 350);
@@ -646,19 +646,23 @@
   background: var(--surface-2); color: var(--fg);
   border: 1px solid var(--border);
 }
-.role-chip.female { background: var(--pink-soft); color: var(--pink-fg); border-color: var(--pink-line); }
 .cast-stats { display: flex; gap: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
 .cast-stat { font: 500 12px/1 var(--font-body); color: var(--muted); }
 .cast-stat b { font: 600 15px/1 var(--font-display); color: var(--fg); display: block; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
 
 /* role eligibility matrix */
 .matrix { width: 100%; border-collapse: collapse; }
-.matrix th, .matrix td { border: 1px solid var(--border); text-align: center; padding: 10px 6px; font: 500 12px/1 var(--font-mono); }
+.matrix th, .matrix td { border: 1px solid var(--border); text-align: center; padding: 8px 6px; font: 500 12px/1 var(--font-mono); }
 .matrix thead th { background: var(--surface-2); color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px; }
 .matrix tbody th { background: var(--surface-2); text-align: left; padding-left: 14px; font: 600 13px/1 var(--font-display); color: var(--fg); }
-.matrix .yes { color: var(--green); }
-.matrix .no { color: var(--border-2); }
-.matrix .female-role { color: var(--pink-fg); }
+.matrix .yes, .matrix .no { padding: 6px; }
+.elig-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px;
+  background: var(--green-soft); color: var(--green-fg);
+  border: 1px solid var(--green-line);
+}
+.elig-dash { color: var(--border-2); font-size: 14px; }
 
 /* ---------- Tours ---------- */
 .tour-folder {

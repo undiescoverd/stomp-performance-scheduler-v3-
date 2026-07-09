@@ -1,4 +1,4 @@
-import { FEMALE_ONLY_ROLES } from "~backend/scheduler/types";
+import { Check } from "lucide-react";
 import type { Role } from "~backend/scheduler/types";
 import type { CompanyMember } from "~backend/scheduler/company";
 
@@ -15,9 +15,7 @@ export function EligibilityMatrix({ members, roles }: EligibilityMatrixProps) {
           <tr>
             <th>Performer</th>
             {roles.map((r) => (
-              <th key={r} className={FEMALE_ONLY_ROLES.includes(r) ? "female-role" : ""}>
-                {r}
-              </th>
+              <th key={r}>{r}</th>
             ))}
           </tr>
         </thead>
@@ -29,7 +27,15 @@ export function EligibilityMatrix({ members, roles }: EligibilityMatrixProps) {
                 const yes = m.eligibleRoles.includes(r);
                 return (
                   <td key={r} className={yes ? "yes" : "no"}>
-                    {yes ? "✓" : "·"}
+                    {yes ? (
+                      <span className="elig-badge">
+                        <Check size={14} strokeWidth={3} />
+                      </span>
+                    ) : (
+                      <span className="elig-dash" aria-hidden="true">
+                        &ndash;
+                      </span>
+                    )}
                   </td>
                 );
               })}

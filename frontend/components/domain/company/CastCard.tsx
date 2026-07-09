@@ -1,5 +1,4 @@
 import { Pencil, Archive, ArchiveRestore, Trash2 } from "lucide-react";
-import { FEMALE_ONLY_ROLES } from "~backend/scheduler/types";
 import type { CompanyMember } from "~backend/scheduler/company";
 import { avatarColor } from "../format";
 
@@ -26,7 +25,7 @@ export function CastCard({ member, onEdit, onArchiveToggle, onDelete }: CastCard
 
       <div className="role-chips">
         {member.eligibleRoles.map((r) => (
-          <span key={r} className={`role-chip${FEMALE_ONLY_ROLES.includes(r) ? " female" : ""}`}>
+          <span key={r} className="role-chip">
             {r}
           </span>
         ))}

@@ -70,7 +70,17 @@ The application models theatrical scheduling with these core entities:
 - TailwindCSS v4 with custom design system and Radix UI components
 
 ### Special Constraints
-- Gender-specific roles: "Bin" and "Cornish" are female-only roles
+- Gender-specific roles: "Bin" and "Cornish" are conventionally cast with a female
+  performer, but this is a casting convention rather than a hard rule — in rare cases a
+  male performer covers them when absolutely needed. Enforcement reflects this:
+  - **Auto-generation** only ever picks a female performer for Bin/Cornish
+    (`FEMALE_ONLY_ROLES` in `scheduler/types.ts` gates the candidate pool).
+  - **Manual assignment** of a male performer is allowed. It raises a
+    `GENDER_VIOLATION` **warning**, not an error, so it never blocks a save or trips
+    the auto-generate retry gate (`GENDER_VIOLATION` is deliberately absent from
+    `CRITICAL_RULE_CODES` in `scheduler/algorithm.ts`).
+  - `deriveGender()` in `scheduler/company.ts` only infers gender from eligibility when
+    the caller omits it; an explicit `gender` always wins.
 - Complex scheduling algorithm handles consecutive show constraints and RED day management
 - Cast member eligibility restricted by predefined role assignments
 
