@@ -8,6 +8,9 @@ export interface CreateScheduleRequest {
   location: string;
   week: string;
   shows: Show[];
+  // Assignments made before the first save (e.g. auto-generate on a new
+  // schedule) — without this the create round-trip would silently drop them.
+  assignments?: Assignment[];
 }
 
 export interface CreateScheduleResponse {
@@ -23,20 +26,21 @@ export const create = api<CreateScheduleRequest, CreateScheduleResponse>(
 
     const id = generateId();
     const now = new Date();
+    const assignments = req.assignments ?? [];
 
     const schedule: Schedule = {
       id,
       location: req.location,
       week: req.week,
       shows: req.shows,
-      assignments: [],
+      assignments,
       createdAt: now,
       updatedAt: now
     };
 
     await scheduleDB.exec`
       INSERT INTO schedules (id, location, week, shows_data, assignments_data, user_id, created_at, updated_at)
-      VALUES (${id}, ${req.location}, ${req.week}, ${JSON.stringify(req.shows)}, ${JSON.stringify([])}, ${userId}, ${now}, ${now})
+      VALUES (${id}, ${req.location}, ${req.week}, ${JSON.stringify(req.shows)}, ${JSON.stringify(assignments)}, ${userId}, ${now}, ${now})
     `;
 
     return { schedule };

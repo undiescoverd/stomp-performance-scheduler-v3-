@@ -91,6 +91,24 @@ describe("resetShowTimes", () => {
     expect(sun).toEqual(["15:00", "18:00"]);
   });
 
+  it("keeps a two-show Wednesday's matinee and evening distinct", () => {
+    // Regression: backend-generated tour weeks put a matinee + evening on
+    // Wednesday, but the Wednesday branch ignored `occurrence`, collapsing
+    // both onto the same 20:00 — the exact collision timeIsFree exists to stop.
+    const week = standardWeek();
+    // 2025-07-16 is the Wednesday of the standard test week.
+    week.push({ id: "wm", date: "2025-07-16", time: "14:30", callTime: "13:30", status: "show" });
+    const reset = resetShowTimes(sortShows(week));
+    const wed = showsOnDate(reset, "2025-07-16").map((s) => s.time);
+    expect(wed).toEqual(["15:00", "20:00"]);
+  });
+
+  it("still resets a single-show Wednesday to its evening slot", () => {
+    const reset = resetShowTimes(standardWeek());
+    const wed = showsOnDate(reset, "2025-07-16").map((s) => s.time);
+    expect(wed).toEqual(["20:00"]);
+  });
+
   it("leaves travel and day-off columns alone", () => {
     // Regression: it used to force every column back to status "show", wiping a
     // travel day on a button labelled "Reset Times".

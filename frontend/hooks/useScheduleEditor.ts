@@ -7,13 +7,17 @@ import { normalizeTime } from '~backend/scheduler/time';
 import { useToast } from '@/components/ui/use-toast';
 import { isoDate } from '@/components/domain/format';
 import {
+  addDaysIso,
   addShowToDate,
+  dayDiffIso,
+  nextMondayFrom,
   nextShow,
   resetShowTimes,
   restoreDate,
   setDestination,
   sortShows,
   timeIsFree,
+  todayIso,
   weekStartOf,
 } from '@/components/domain/week';
 
@@ -67,7 +71,7 @@ export function useScheduleEditor(id?: string) {
 
   // Create schedule mutation
   const createMutation = useMutation({
-    mutationFn: (data: { location: string; week: string; shows: Show[] }) =>
+    mutationFn: (data: { location: string; week: string; shows: Show[]; assignments?: Assignment[] }) =>
       backend.scheduler.create(data),
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] });
@@ -163,52 +167,40 @@ export function useScheduleEditor(id?: string) {
     }
   });
 
-  // Helper function to get next Monday
-  const getNextMonday = (fromDate = new Date()): Date => {
-    const date = new Date(fromDate);
-    const day = date.getDay();
-    const daysUntilMonday = day === 0 ? 1 : 8 - day; // 0 = Sunday
-    if (day === 1) { // If it's already Monday
-      return date;
-    }
-    date.setDate(date.getDate() + daysUntilMonday);
-    return date;
-  };
+  // All date math below works on YYYY-MM-DD strings anchored at UTC midnight
+  // (week.ts helpers). Mixing local-time Dates with toISOString() shifted the
+  // calendar date for users away from UTC — e.g. Monday 09:00 in Sydney is
+  // Sunday 23:00 UTC, so the seeded week started a day early.
 
   // Helper function to calculate week number from date
-  const getWeekNumberFromDate = (date: Date): number => {
-    const startOfYear = new Date(date.getFullYear(), 0, 1);
-    const pastDaysOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-    return Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
-  };
-
-  // Helper function to format date for input
-  const formatDateForInput = (date: Date): string => {
-    return date.toISOString().split('T')[0];
+  const getWeekNumberFromDate = (dateIso: string): number => {
+    const date = new Date(`${isoDate(dateIso)}T00:00:00Z`);
+    const startOfYear = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const pastDaysOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86_400_000);
+    return Math.ceil((pastDaysOfYear + startOfYear.getUTCDay() + 1) / 7);
   };
 
   // Helper function to generate shows from week start date
   const generateShowsFromWeekStart = (weekStartDate: string): Show[] => {
-    const startDate = new Date(weekStartDate);
     const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 
     const defaultShows: Show[] = [
       // Tuesday - 8pm Show, 5pm Call
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 1 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '17:00', status: 'show' },
+      { id: generateId(), date: addDaysIso(weekStartDate, 1), time: '20:00', callTime: '17:00', status: 'show' },
       // Wednesday - 8pm Show, 6pm Call
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 2 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      { id: generateId(), date: addDaysIso(weekStartDate, 2), time: '20:00', callTime: '18:00', status: 'show' },
       // Thursday - 8pm Show, 6pm Call
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 3 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      { id: generateId(), date: addDaysIso(weekStartDate, 3), time: '20:00', callTime: '18:00', status: 'show' },
       // Friday - 8pm Show, 6pm Call
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 4 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      { id: generateId(), date: addDaysIso(weekStartDate, 4), time: '20:00', callTime: '18:00', status: 'show' },
       // Saturday matinee - 3pm Show
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '15:00', callTime: '13:30', status: 'show' },
+      { id: generateId(), date: addDaysIso(weekStartDate, 5), time: '15:00', callTime: '13:30', status: 'show' },
       // Saturday evening - 8pm Show
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 5 * 24 * 60 * 60 * 1000)), time: '20:00', callTime: '18:00', status: 'show' },
+      { id: generateId(), date: addDaysIso(weekStartDate, 5), time: '20:00', callTime: '18:00', status: 'show' },
       // Sunday matinee - 3pm Show
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '15:00', callTime: '13:30', status: 'show' },
+      { id: generateId(), date: addDaysIso(weekStartDate, 6), time: '15:00', callTime: '13:30', status: 'show' },
       // Sunday evening - 6pm Show
-      { id: generateId(), date: formatDateForInput(new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000)), time: '18:00', callTime: '16:30', status: 'show' }
+      { id: generateId(), date: addDaysIso(weekStartDate, 6), time: '18:00', callTime: '16:30', status: 'show' }
     ];
 
     return defaultShows;
@@ -216,54 +208,50 @@ export function useScheduleEditor(id?: string) {
 
   // Handle week start date change
   const handleWeekStartDateChange = (newDate: string) => {
+    const previousWeekStart = weekStartDate;
     setWeekStartDate(newDate);
 
     // Auto-calculate week number
-    const date = new Date(newDate);
-    const weekNumber = getWeekNumberFromDate(date);
-    setWeek(weekNumber.toString());
+    setWeek(getWeekNumberFromDate(newDate).toString());
 
     // Update existing shows dates if we have shows
     if (shows.length > 0) {
-      const startDate = new Date(newDate);
-      const updatedShows = shows.map((show, index) => {
-        // Calculate new date based on show's position in the week
-        const originalDate = new Date(show.date);
-        const originalWeekStart = new Date(weekStartDate);
-        const dayOffset = Math.floor((originalDate.getTime() - originalWeekStart.getTime()) / (24 * 60 * 60 * 1000));
+      // Each show keeps its position in the week. If there's no previous week
+      // start to measure from (first time setting a date), fall back to the
+      // standard-week index layout.
+      const offsetFor = (date: string, index: number) =>
+        previousWeekStart
+          ? dayDiffIso(date, previousWeekStart)
+          : (index < 4 ? index + 1 : index - 3);
 
-        // If we can't calculate offset (first time setting date), use index-based approach
-        const finalDayOffset = isNaN(dayOffset) ? (index < 4 ? index + 1 : index - 3) : dayOffset;
-
-        const newDate = new Date(startDate.getTime() + finalDayOffset * 24 * 60 * 60 * 1000);
-
-        return {
+      const shiftToNewWeek = (list: Show[]) =>
+        list.map((show, index) => ({
           ...show,
-          date: formatDateForInput(newDate)
-        };
-      });
-      setShows(updatedShows);
+          date: addDaysIso(newDate, offsetFor(isoDate(show.date), index)),
+        }));
+
+      setShows(shiftToNewWeek(shows));
+
+      // Move the baseline with the week: nextShow()/restoreDate() compare
+      // against it, and a stale baseline makes "Add Show" insert columns dated
+      // in the week we just navigated away from.
+      baselineShows.current = shiftToNewWeek(baselineShows.current);
     }
   };
 
   // Navigate to previous week
   const navigateToPreviousWeek = () => {
-    const currentDate = new Date(weekStartDate);
-    const previousWeek = new Date(currentDate.getTime() - 7 * 24 * 60 * 60 * 1000);
-    handleWeekStartDateChange(formatDateForInput(previousWeek));
+    handleWeekStartDateChange(addDaysIso(weekStartDate, -7));
   };
 
   // Navigate to next week
   const navigateToNextWeek = () => {
-    const currentDate = new Date(weekStartDate);
-    const nextWeek = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-    handleWeekStartDateChange(formatDateForInput(nextWeek));
+    handleWeekStartDateChange(addDaysIso(weekStartDate, 7));
   };
 
   // Navigate to current week
   const navigateToCurrentWeek = () => {
-    const nextMonday = getNextMonday();
-    handleWeekStartDateChange(formatDateForInput(nextMonday));
+    handleWeekStartDateChange(nextMondayFrom(todayIso()));
   };
 
   // Load schedule data when editing
@@ -293,15 +281,14 @@ export function useScheduleEditor(id?: string) {
   // Initialize default values for new schedule
   useEffect(() => {
     if (!isEditing) {
-      const nextMonday = getNextMonday();
-      const weekNumber = getWeekNumberFromDate(nextMonday);
+      const nextMonday = nextMondayFrom(todayIso());
 
-      setWeek(weekNumber.toString());
+      setWeek(getWeekNumberFromDate(nextMonday).toString());
       setLocation('London');
-      setWeekStartDate(formatDateForInput(nextMonday));
+      setWeekStartDate(nextMonday);
 
       // Generate default shows
-      const defaultShows = generateShowsFromWeekStart(formatDateForInput(nextMonday));
+      const defaultShows = generateShowsFromWeekStart(nextMonday);
       setShows(defaultShows);
       baselineShows.current = defaultShows;
     }
@@ -336,10 +323,13 @@ export function useScheduleEditor(id?: string) {
           assignments
         });
       } else {
+        // Include assignments so casting done before the first save (e.g.
+        // auto-generate on /schedule/new) survives the create round-trip.
         await createMutation.mutateAsync({
           location,
           week,
-          shows
+          shows,
+          assignments
         });
       }
     } catch (error) {

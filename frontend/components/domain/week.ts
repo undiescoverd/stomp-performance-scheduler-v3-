@@ -16,6 +16,21 @@ export function addDaysIso(date: string, n: number): string {
     .slice(0, 10);
 }
 
+/** Whole days from `b` to `a` (positive when `a` is later). */
+export function dayDiffIso(a: string, b: string): number {
+  return Math.round(
+    (new Date(`${isoDate(a)}T00:00:00Z`).getTime() - new Date(`${isoDate(b)}T00:00:00Z`).getTime()) / 86_400_000,
+  );
+}
+
+/** Today as YYYY-MM-DD on the user's local calendar (not UTC's). */
+export function todayIso(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 /** Shows falling on one calendar date, in the order they appear in `list`. */
 export function showsOnDate(list: Show[], date: string): Show[] {
   return list.filter((s) => isoDate(s.date) === date);
@@ -32,37 +47,44 @@ export function sortShows(list: Show[]): Show[] {
 }
 
 /**
- * Default times for a show by weekday. `occurrence` disambiguates the two-show
- * days (Sat/Sun): 0 is the matinee, 1 the evening. Without it a single date
- * cannot tell its matinee from its evening, which silently collapsed both
- * Saturday columns onto the matinee time.
+ * Default times for a show by weekday. `occurrence` disambiguates two-show
+ * days: 0 is the matinee, 1 the evening. Without it a single date cannot tell
+ * its matinee from its evening, which silently collapsed both Saturday columns
+ * onto the matinee time. Sat/Sun are always treated as two-show days; any other
+ * weekday only gets a matinee slot when `showsOnDay` says the day actually
+ * holds more than one show (tour weeks put a matinee on Wednesday), otherwise
+ * both shows on that date would land on the same time.
  */
-export function getDefaultShowTimes(date: string, occurrence = 0): { time: string; callTime: string } {
+export function getDefaultShowTimes(date: string, occurrence = 0, showsOnDay = 1): { time: string; callTime: string } {
+  const weekdayMatinee = showsOnDay >= 2 && occurrence === 0;
   switch (new Date(`${isoDate(date)}T00:00:00Z`).getUTCDay()) {
     case 2: // Tuesday
-      return { time: "20:00", callTime: "17:00" };
-    case 3: // Wednesday
-    case 4: // Thursday
-    case 5: // Friday
-      return { time: "20:00", callTime: "18:00" };
+      return weekdayMatinee ? { time: "15:00", callTime: "13:30" } : { time: "20:00", callTime: "17:00" };
     case 6: // Saturday — matinee then evening
       return occurrence === 0 ? { time: "15:00", callTime: "13:30" } : { time: "20:00", callTime: "18:00" };
     case 0: // Sunday — matinee then evening
       return occurrence === 0 ? { time: "15:00", callTime: "13:30" } : { time: "18:00", callTime: "16:30" };
-    default:
-      return { time: "20:00", callTime: "18:00" };
+    default: // Monday, Wednesday–Friday
+      return weekdayMatinee ? { time: "15:00", callTime: "13:30" } : { time: "20:00", callTime: "18:00" };
   }
 }
 
 /** Re-time every show column, leaving travel and day-off columns untouched. */
 export function resetShowTimes(shows: Show[]): Show[] {
+  const showsPerDate = new Map<string, number>();
+  for (const show of shows) {
+    if (show.status !== "show") continue;
+    const date = isoDate(show.date);
+    showsPerDate.set(date, (showsPerDate.get(date) ?? 0) + 1);
+  }
+
   const seenPerDate = new Map<string, number>();
   return shows.map((show) => {
+    if (show.status !== "show") return show;
     const date = isoDate(show.date);
     const occurrence = seenPerDate.get(date) ?? 0;
     seenPerDate.set(date, occurrence + 1);
-    if (show.status !== "show") return show;
-    return { ...show, ...getDefaultShowTimes(date, occurrence) };
+    return { ...show, ...getDefaultShowTimes(date, occurrence, showsPerDate.get(date)) };
   });
 }
 
