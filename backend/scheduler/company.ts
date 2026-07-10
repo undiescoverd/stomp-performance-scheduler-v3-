@@ -1,10 +1,17 @@
 import { api } from "encore.dev/api";
-import { CAST_MEMBERS, ROLES, CastMember, Role } from "./types";
+import { CAST_MEMBERS, ROLES, FEMALE_ONLY_ROLES, CastMember, Role } from "./types";
+
+// Female-only roles (Bin/Cornish) imply a female performer, so a member's
+// gender can be derived from eligibility when not explicitly provided.
+function deriveGender(eligibleRoles: Role[]): "male" | "female" {
+  return eligibleRoles.some(r => FEMALE_ONLY_ROLES.includes(r)) ? "female" : "male";
+}
 
 export interface CompanyMember {
   id: string;
   name: string;
   eligibleRoles: Role[];
+  gender: "male" | "female";
   status: "active" | "archived";
   dateAdded: Date;
   dateArchived?: Date;
@@ -20,6 +27,7 @@ export interface GetCompanyResponse {
 export interface AddMemberRequest {
   name: string;
   eligibleRoles: Role[];
+  gender?: "male" | "female";
   status?: "active" | "archived";
 }
 
@@ -31,6 +39,7 @@ export interface UpdateMemberRequest {
   id: string;
   name?: string;
   eligibleRoles?: Role[];
+  gender?: "male" | "female";
   status?: "active" | "archived";
   order?: number;
 }
@@ -57,6 +66,7 @@ const initializeDefaultCompany = () => {
       id: `member_${Date.now()}_${index}`,
       name: member.name,
       eligibleRoles: member.eligibleRoles,
+      gender: member.gender ?? deriveGender(member.eligibleRoles),
       status: "active" as const,
       dateAdded: new Date(),
       order: index
@@ -103,6 +113,7 @@ export const addMember = api<AddMemberRequest, AddMemberResponse>(
       id,
       name: req.name.toUpperCase(),
       eligibleRoles: req.eligibleRoles,
+      gender: req.gender ?? deriveGender(req.eligibleRoles),
       status: req.status || "active",
       dateAdded: now,
       dateArchived: req.status === "archived" ? now : undefined,
@@ -132,6 +143,7 @@ export const updateMember = api<UpdateMemberRequest, UpdateMemberResponse>(
     // Update fields
     if (req.name !== undefined) member.name = req.name.toUpperCase();
     if (req.eligibleRoles !== undefined) member.eligibleRoles = req.eligibleRoles;
+    if (req.gender !== undefined) member.gender = req.gender;
     if (req.order !== undefined) member.order = req.order;
     
     // Handle status changes

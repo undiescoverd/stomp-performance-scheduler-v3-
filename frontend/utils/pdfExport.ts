@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { Show, Assignment, Role, CastMember } from '~backend/scheduler/types';
+import { dowShort, shortDate, type DateStyle } from '@/components/domain/format';
 
 interface PDFExportOptions {
   location: string;
@@ -10,6 +11,8 @@ interface PDFExportOptions {
   assignments: Assignment[];
   castMembers: CastMember[];
   roles: Role[];
+  /** Chosen in Settings; a plain class, so it is passed in rather than hooked. */
+  dateStyle?: DateStyle;
 }
 
 export class SchedulePDFExporter {
@@ -63,21 +66,19 @@ export class SchedulePDFExporter {
     
     // Create structured table data matching the exact format from the image
     const tableHead = [
-      ['Role', ...shows.map(show => {
-        const date = new Date(show.date);
-        const dayName = format(date, 'EEE');
-        const monthDay = format(date, 'M/d');
-        return `${dayName} ${monthDay}`;
-      })],
-      ['', ...shows.map(show => {
-        if (show.status === 'show') {
-          const timeFormatted = this.formatTime(show.time);
-          const callTime = this.formatCallTime(show.callTime);
-          return `${timeFormatted}\nCall: ${callTime}`;
-        } else {
-          return show.status.toUpperCase();
-        }
-      })]
+      // Formatted through format.ts, so the printed header matches the on-screen
+      // grid and honours the chosen date style. `new Date(show.date)` would also
+      // misread a client-revived UTC-midnight Date by a day.
+      ['Role', ...shows.map(show => `${dowShort(show.date)} ${shortDate(show.date, this.options.dateStyle)}`)],
+      // Show and Call are two labelled rows of equal weight, as on the printed
+      // call sheet. Stacked in one cell the call time read as a footnote to the
+      // curtain time, and a TBC in it was easy to miss.
+      ['Show', ...shows.map(show =>
+        show.status === 'show' ? this.formatTime(show.time) : show.status.toUpperCase()
+      )],
+      ['Call', ...shows.map(show =>
+        show.status === 'show' ? this.formatCallTime(show.callTime) : ''
+      )]
     ];
     
     // Build role assignment rows
@@ -106,15 +107,18 @@ export class SchedulePDFExporter {
           if (assignment) {
             // Check if this is a RED day
             const isRedDay = assignment.isRedDay;
-            
+            // RD injury/sickness fatigue override — marked so a warning-level
+            // schedule is legible on paper (jsPDF core fonts lack a flag glyph,
+            // so we use a "*" marker + amber; see the notes legend).
+            const isOverride = assignment.isOverride;
+
             row.push({
-              content: assignment.performer,
-              styles: isRedDay ? {
-                textColor: [220, 20, 20], // RED day performers in red
-                fontStyle: 'bold'
-              } : {
-                fontStyle: 'normal'
-              }
+              content: isOverride ? `${assignment.performer} *` : assignment.performer,
+              styles: isRedDay
+                ? { textColor: [220, 20, 20], fontStyle: 'bold' } // RED day performers in red
+                : isOverride
+                  ? { textColor: [176, 108, 0], fontStyle: 'bold' } // override in amber
+                  : { fontStyle: 'normal' }
             });
           } else {
             row.push('');
@@ -281,6 +285,9 @@ export class SchedulePDFExporter {
   }
 
   private formatTime(time: string): string {
+    // A show time that isn't set yet — or was cleared — prints as TBC, the same
+    // as a call time. Without this an empty cell reads as a missing show.
+    if (!time || time === 'TBC') return 'TBC';
     // Format time based on common STOMP patterns
     if (time === 'mat' || time === 'matinee') return 'Mat';
     if (time === 'eve' || time === 'evening') return 'Eve';
@@ -309,6 +316,7 @@ export class SchedulePDFExporter {
     // RED day explanation with bullet points
     this.doc.text('• RED Day - Performer is not on call and cannot be called in for emergency cover unless compensated', 20, currentY + 6);
     this.doc.text('• TRAVEL/DAY OFF days show special status instead of individual assignments', 20, currentY + 11);
+    this.doc.text('• *  (amber) - RD injury/sickness fatigue override; the back-to-back / weekly-cap breach is accepted as cover', 20, currentY + 16);
   }
 
   private addFooter(): void {
@@ -324,8 +332,12 @@ export class SchedulePDFExporter {
   }
 
   download(filename?: string): void {
-    const { location, week } = this.options;
-    const defaultName = `STOMP_Schedule_${location.replace(/\s+/g, '_')}_Week${week}_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+    const { location, week, dateStyle } = this.options;
+    // date-fns yields today's *local* calendar date; shortDate then styles it.
+    // Slashes and spaces are not filename-safe, so they collapse to a dash --
+    // under the iso style this reproduces the original yyyy-MM-dd stamp exactly.
+    const stamp = shortDate(format(new Date(), 'yyyy-MM-dd'), dateStyle).replace(/[/\s]+/g, '-');
+    const defaultName = `STOMP_Schedule_${location.replace(/\s+/g, '_')}_Week${week}_${stamp}.pdf`;
     this.doc.save(filename || defaultName);
   }
 }

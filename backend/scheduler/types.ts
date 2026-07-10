@@ -5,6 +5,9 @@ export type DayStatus = "show" | "travel" | "dayoff";
 export interface CastMember {
   name: string;
   eligibleRoles: Role[];
+  // Optional so legacy/company-loaded records still typecheck. When absent,
+  // gender is inferred from eligibility for a female-only role (see algorithm).
+  gender?: "male" | "female";
 }
 
 export interface Show {
@@ -13,6 +16,13 @@ export interface Show {
   time: string;
   callTime: string;
   status: DayStatus;
+  /**
+   * City this column belongs to, when a week spans more than one. Absent on
+   * single-city weeks, where the schedule's own `location` is the city. A
+   * travel day carries the city being *left*, so the destination lives on the
+   * days after it — see `setDestination` in frontend/components/domain/week.ts.
+   */
+  location?: string;
 }
 
 export interface Assignment {
@@ -20,6 +30,12 @@ export interface Assignment {
   role: Role | "OFF";
   performer: string;
   isRedDay?: boolean;
+  // RD-sanctioned exception (injury/sickness cover). When set, a back-to-back
+  // double-days or weekly >6 violation involving this assignment is reported as
+  // a warning instead of an error. Never softens casting/eligibility/
+  // >6-consecutive/RED-day errors. (Gender-role mismatches are already
+  // reported as a warning, not an error — see GENDER_VIOLATION.)
+  isOverride?: boolean;
 }
 
 export interface Schedule {
@@ -33,18 +49,18 @@ export interface Schedule {
 }
 
 export const CAST_MEMBERS: CastMember[] = [
-  { name: "PHIL", eligibleRoles: ["Sarge"] },
-  { name: "SEAN", eligibleRoles: ["Sarge", "Potato"] },
-  { name: "JAMIE", eligibleRoles: ["Potato", "Ringo"] },
-  { name: "ADAM", eligibleRoles: ["Ringo", "Particle"] },
-  { name: "CARY", eligibleRoles: ["Particle"] },
-  { name: "JOE", eligibleRoles: ["Ringo", "Mozzie"] },
-  { name: "JOSE", eligibleRoles: ["Mozzie"] },
-  { name: "JOSH", eligibleRoles: ["Who"] },
-  { name: "CADE", eligibleRoles: ["Who", "Ringo", "Potato"] },
-  { name: "MOLLY", eligibleRoles: ["Bin", "Cornish"] },
-  { name: "JASMINE", eligibleRoles: ["Bin", "Cornish"] },
-  { name: "SERENA", eligibleRoles: ["Bin", "Cornish"] }
+  { name: "PHIL", eligibleRoles: ["Sarge"], gender: "male" },
+  { name: "SEAN", eligibleRoles: ["Sarge", "Potato"], gender: "male" },
+  { name: "JAMIE", eligibleRoles: ["Potato", "Ringo"], gender: "male" },
+  { name: "ADAM", eligibleRoles: ["Ringo", "Particle"], gender: "male" },
+  { name: "CARY", eligibleRoles: ["Particle"], gender: "male" },
+  { name: "JOE", eligibleRoles: ["Ringo", "Mozzie"], gender: "male" },
+  { name: "JOSE", eligibleRoles: ["Mozzie"], gender: "male" },
+  { name: "JOSH", eligibleRoles: ["Who"], gender: "male" },
+  { name: "CADE", eligibleRoles: ["Who", "Ringo", "Potato"], gender: "male" },
+  { name: "MOLLY", eligibleRoles: ["Bin", "Cornish"], gender: "female" },
+  { name: "JASMINE", eligibleRoles: ["Bin", "Cornish"], gender: "female" },
+  { name: "SERENA", eligibleRoles: ["Bin", "Cornish"], gender: "female" }
 ];
 
 export const ROLES: Role[] = ["Sarge", "Potato", "Mozzie", "Ringo", "Particle", "Bin", "Cornish", "Who"];

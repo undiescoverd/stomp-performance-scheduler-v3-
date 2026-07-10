@@ -70,7 +70,17 @@ The application models theatrical scheduling with these core entities:
 - TailwindCSS v4 with custom design system and Radix UI components
 
 ### Special Constraints
-- Gender-specific roles: "Bin" and "Cornish" are female-only roles
+- Gender-specific roles: "Bin" and "Cornish" are conventionally cast with a female
+  performer, but this is a casting convention rather than a hard rule — in rare cases a
+  male performer covers them when absolutely needed. Enforcement reflects this:
+  - **Auto-generation** only ever picks a female performer for Bin/Cornish
+    (`FEMALE_ONLY_ROLES` in `scheduler/types.ts` gates the candidate pool).
+  - **Manual assignment** of a male performer is allowed. It raises a
+    `GENDER_VIOLATION` **warning**, not an error, so it never blocks a save or trips
+    the auto-generate retry gate (`GENDER_VIOLATION` is deliberately absent from
+    `CRITICAL_RULE_CODES` in `scheduler/algorithm.ts`).
+  - `deriveGender()` in `scheduler/company.ts` only infers gender from eligibility when
+    the caller omits it; an explicit `gender` always wins.
 - Complex scheduling algorithm handles consecutive show constraints and RED day management
 - Cast member eligibility restricted by predefined role assignments
 
@@ -157,7 +167,7 @@ The application models theatrical scheduling with these core entities:
   - `backend/scheduler/create.ts` - Removed `import { auth } from "../auth/auth";` and disabled auth
   - `backend/scheduler/list.ts` - Removed auth dependencies and user filtering
 - **Impact**: Restored backend compilation and API functionality
-- **Status**: Authentication temporarily disabled - feature flags control auth: `auth: false`
+- **Status**: Superseded — authentication is now enabled, see "Feature Flag Management" below.
 
 ### Frontend React Import Fix
 - **Issue**: Duplicate `useState` import causing frontend compilation errors
@@ -172,7 +182,21 @@ The application models theatrical scheduling with these core entities:
 - **Verification**: Cast members display, schedules show properly, delete operations work
 
 ### Feature Flag Management
-- **Tours Feature**: Currently disabled (`MULTI_COUNTRY_TOURS: false`)
 - **Location**: `backend/config/features.ts`
-- **Status**: Hidden in production until feature completion
-- **Authentication**: Temporarily disabled for stability
+- **Tours Feature**: Enabled (`MULTI_COUNTRY_TOURS: true`). Override with `ENABLE_TOURS`.
+- **Authentication**: Enabled (`AUTHENTICATION_ENABLED: true`).
+
+Authentication uses Encore's native `authHandler` in `backend/auth/encore_auth.ts`,
+not custom middleware. Schedule endpoints declare `auth: true` and scope every query
+by the caller's `user_id`, so a schedule is only visible to its owner. The old
+`backend/auth/middleware.ts` was superseded and removed.
+
+`AUTHENTICATION_ENABLED` is **not** a kill switch that makes endpoints public. The
+endpoints hard-declare `auth: true`, and when `isAuthEnabled()` returns false the auth
+handler throws `unauthenticated` (`encore_auth.ts:32`). Turning the flag off therefore
+makes every schedule endpoint return 401 — it bricks the app rather than opening it.
+
+`isAuthEnabled()` (`auth/config.ts:74`) resolves in this order: the `AUTH_ENABLED`
+environment variable if set; then **always true** when `NODE_ENV` is `development` or
+unset; then `FEATURE_FLAGS.AUTHENTICATION_ENABLED`. So the feature flag only takes
+effect in a non-development `NODE_ENV` with `AUTH_ENABLED` unset.

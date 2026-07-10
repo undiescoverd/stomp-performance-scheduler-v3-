@@ -1,10 +1,12 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "encore.dev/internal/codegen/auth";
+import type { AuthData } from "../auth/encore_auth";
 import { scheduleDB } from "./db";
 import { autoGenerate } from "./auto_generate";
 import { FEATURE_FLAGS } from "../config/features";
-import { 
-  Tour, 
-  TourWithWeeks, 
+import {
+  Tour,
+  TourWithWeeks,
   TourGroup,
   BulkCreateRequest,
   BulkCreateResponse,
@@ -12,12 +14,12 @@ import {
   DeleteTourResponse,
   DeleteTourWeekResponse,
   Show,
-  DayStatus 
+  DayStatus
 } from "./tour_types";
 
 // Creates a tour with bulk schedule generation
 export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
-  { expose: true, method: "POST", path: "/api/tours/bulk-create" },
+  { expose: true, method: "POST", path: "/api/tours/bulk-create", auth: true },
   async (req) => {
     // Feature flag check
     if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
@@ -29,7 +31,12 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
 
     const tourId = generateId();
     const now = new Date();
-    
+    // Tour week schedules must be owned by the creating user, or the
+    // user-scoped get()/list() endpoints can't open them (they filter on
+    // user_id). Mirrors create.ts.
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
     try {
       // Validate request
       if (!req.weeks || req.weeks.length === 0 || req.weeks.length > 12) {
@@ -49,18 +56,18 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
       // Extract overall start and end dates from weeks
       const startDate = req.weeks[0].startDate;
       const endDate = req.weeks[req.weeks.length - 1].endDate;
-      
+
       // Extract parent tour name (everything before " - ")
-      const parentTourName = req.tourName.includes(" - ") 
-        ? req.tourName.split(" - ")[0] 
+      const parentTourName = req.tourName.includes(" - ")
+        ? req.tourName.split(" - ")[0]
         : req.tourName;
 
       console.log(`Creating tour ${tourId} with name: ${req.tourName}`);
 
       // Create tour record with new structure
       await scheduleDB.exec`
-        INSERT INTO tours (id, name, segment_name, parent_tour_name, start_date, end_date, cast_member_ids, created_at, updated_at)
-        VALUES (${tourId}, ${req.tourName}, ${req.segmentName}, ${parentTourName}, ${startDate}, ${endDate}, ${JSON.stringify(req.castMemberIds)}, ${now}, ${now})
+        INSERT INTO tours (id, name, segment_name, parent_tour_name, start_date, end_date, cast_member_ids, user_id, created_at, updated_at)
+        VALUES (${tourId}, ${req.tourName}, ${req.segmentName}, ${parentTourName}, ${startDate}, ${endDate}, ${JSON.stringify(req.castMemberIds)}, ${userId}, ${now}, ${now})
       `;
 
       console.log(`Tour ${tourId} created successfully with parent: ${parentTourName}`);
@@ -80,12 +87,13 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
       for (const tourWeek of req.weeks) {
         try {
           let shows: Show[];
-          
+
           if (!tourWeek.isStandard && tourWeek.customShows) {
             shows = tourWeek.customShows;
           } else {
-            // Generate standard week, accounting for travel day
-            shows = generateStandardWeekShows(tourWeek.travelDay);
+            // Generate standard week (real dates from the week's Monday),
+            // accounting for travel day.
+            shows = generateStandardWeekShows(tourWeek.startDate, tourWeek.travelDay);
           }
 
           console.log(`Creating week ${tourWeek.weekNumber} for tour ${tourId} in ${tourWeek.locationCity}`);
@@ -93,14 +101,14 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
           // Create schedule entry with location_city
           const scheduleId = generateId();
           const week = `Week ${tourWeek.weekNumber}`;
-          
+
           await scheduleDB.exec`
-            INSERT INTO schedules (id, location, location_city, week, shows_data, assignments_data, tour_id, tour_segment, created_at, updated_at)
-            VALUES (${scheduleId}, ${tourWeek.locationCity}, ${tourWeek.locationCity}, ${week}, ${JSON.stringify(shows)}, ${JSON.stringify([])}, ${tourId}, ${req.segmentName}, ${now}, ${now})
+            INSERT INTO schedules (id, location, location_city, week, shows_data, assignments_data, tour_id, tour_segment, user_id, created_at, updated_at)
+            VALUES (${scheduleId}, ${tourWeek.locationCity}, ${tourWeek.locationCity}, ${week}, ${JSON.stringify(shows)}, ${JSON.stringify([])}, ${tourId}, ${req.segmentName}, ${userId}, ${now}, ${now})
           `;
 
           console.log(`Week ${tourWeek.weekNumber} schedule ${scheduleId} created`);
-          
+
           // Track created week data
           createdWeekData.push({
             id: scheduleId,
@@ -163,14 +171,14 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
 
     } catch (error) {
       console.error(`Tour creation failed:`, error);
-      
+
       // Cleanup on failure
       try {
         await scheduleDB.exec`DELETE FROM tours WHERE id = ${tourId}`;
       } catch (cleanupError) {
         console.error(`Cleanup failed:`, cleanupError);
       }
-      
+
       return {
         success: false,
         errors: [`Failed to create tour: ${error}`]
@@ -181,7 +189,7 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
 
 // Gets all tours with their weeks, optionally grouped by parent tour
 export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
-  { expose: true, method: "GET", path: "/api/tours" },
+  { expose: true, method: "GET", path: "/api/tours", auth: true },
   async (req) => {
     // Feature flag check
     if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
@@ -192,10 +200,12 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
     }
 
     console.log("getTours called with params:", req);
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
     try {
-      // Simple query to get all tours
+      // Only the caller's own tours (mirrors the user scoping on list.ts/get.ts)
       const rows = await scheduleDB.query`
-        SELECT 
+        SELECT
           id,
           name,
           segment_name,
@@ -206,11 +216,12 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
           created_at,
           updated_at
         FROM tours
+        WHERE user_id = ${userId}
         ORDER BY created_at DESC
       `;
 
       console.log("Database query did not return an array:", rows);
-      
+
       // Convert AsyncGenerator to array
       const rowsArray: any[] = [];
       if (rows && typeof rows[Symbol.asyncIterator] === 'function') {
@@ -222,7 +233,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
       }
 
       console.log(`Query returned rows: ${rowsArray.length} rows`);
-      
+
       if (rowsArray.length === 0) {
         // Debug: Check if tours table has any data
         const countResult = await scheduleDB.query`SELECT COUNT(*) as total FROM tours`;
@@ -238,13 +249,13 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
       }
 
       const tours: TourWithWeeks[] = [];
-      
+
       for (const row of rowsArray) {
         // Get weeks for this tour
         const weekRows = await scheduleDB.query`
           SELECT id, location_city, week, shows_data
           FROM schedules
-          WHERE tour_id = ${row.id}
+          WHERE tour_id = ${row.id} AND user_id = ${userId}
           ORDER BY week
         `;
 
@@ -266,7 +277,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
           } catch (e) {
             showCount = 0;
           }
-          
+
           return {
             id: week.id,
             weekNumber: index + 1,
@@ -276,7 +287,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
             locationCity: week.location_city || 'Unknown'
           };
         });
-        
+
         // Parse cast member IDs
         let castMemberIds: string[] = [];
         try {
@@ -306,7 +317,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
       // If grouped is requested, group by parent tour name
       if (req?.grouped) {
         const groupMap = new Map<string, TourWithWeeks[]>();
-        
+
         tours.forEach(tour => {
           const parentName = tour.parentTourName || tour.name;
           if (!groupMap.has(parentName)) {
@@ -319,7 +330,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
           const allStartDates = segments.map(s => new Date(s.startDate));
           const allEndDates = segments.map(s => new Date(s.endDate));
           const totalWeeks = segments.reduce((sum, segment) => sum + segment.weeks.length, 0);
-          
+
           return {
             tourName,
             createdAt: segments[0]?.createdAt || new Date().toISOString(),
@@ -342,7 +353,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
 
 // Deletes a tour and all its associated schedules
 export const deleteTour = api<{ id: string }, DeleteTourResponse>(
-  { expose: true, method: "DELETE", path: "/api/tours/:id" },
+  { expose: true, method: "DELETE", path: "/api/tours/:id", auth: true },
   async (req) => {
     // Feature flag check
     if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
@@ -351,12 +362,15 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
       };
     }
 
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
     try {
       // Count schedules that will be deleted
       const countResult = await scheduleDB.query`
-        SELECT COUNT(*) as count FROM schedules WHERE tour_id = ${req.id}
+        SELECT COUNT(*) as count FROM schedules WHERE tour_id = ${req.id} AND user_id = ${userId}
       `;
-      
+
       // Convert AsyncGenerator to array
       const countArray: any[] = [];
       if (countResult && typeof countResult[Symbol.asyncIterator] === 'function') {
@@ -368,9 +382,10 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
       }
       const deletedWeeks = countArray[0]?.count || 0;
 
-      // Delete tour (cascades to schedules due to foreign key)
+      // Delete tour (cascades to schedules due to foreign key), only if the
+      // caller owns it — mirrors the user scoping on delete.ts.
       const result = await scheduleDB.exec`
-        DELETE FROM tours WHERE id = ${req.id}
+        DELETE FROM tours WHERE id = ${req.id} AND user_id = ${userId}
       `;
 
       return {
@@ -387,7 +402,7 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
 
 // Deletes a specific week from a tour
 export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTourWeekResponse>(
-  { expose: true, method: "DELETE", path: "/api/tours/:tourId/weeks/:weekId" },
+  { expose: true, method: "DELETE", path: "/api/tours/:tourId/weeks/:weekId", auth: true },
   async (req) => {
     // Feature flag check
     if (!FEATURE_FLAGS.MULTI_COUNTRY_TOURS) {
@@ -396,10 +411,13 @@ export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTour
       };
     }
 
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
     try {
       await scheduleDB.exec`
-        DELETE FROM schedules 
-        WHERE id = ${req.weekId} AND tour_id = ${req.tourId}
+        DELETE FROM schedules
+        WHERE id = ${req.weekId} AND tour_id = ${req.tourId} AND user_id = ${userId}
       `;
 
       return { success: true };
@@ -409,10 +427,25 @@ export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTour
   }
 );
 
-// Helper function to generate standard week shows, accounting for travel days
-function generateStandardWeekShows(travelDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'none'): Show[] {
+// Helper function to generate standard week shows, accounting for travel days.
+// `weekStartDate` is the Monday of the week (YYYY-MM-DD); each day-name maps to
+// a real calendar date so the resulting schedule is editable like any other.
+function generateStandardWeekShows(
+  weekStartDate: string,
+  travelDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'none',
+): Show[] {
   const shows: Show[] = [];
-  
+
+  const DAY_OFFSET: Record<string, number> = {
+    monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6,
+  };
+  // Noon-UTC anchor keeps the calendar date correct across timezones/DST.
+  const base = new Date(`${weekStartDate}T12:00:00Z`);
+  const dateFor = (dayName: string): string => {
+    const off = DAY_OFFSET[dayName.toLowerCase()] ?? 0;
+    return new Date(base.getTime() + off * 86400000).toISOString().slice(0, 10);
+  };
+
   // Base schedule: 8 shows (Mon-Sat with matinee on Wed/Sat)
   const baseSchedule = [
     { day: "Monday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
@@ -437,16 +470,16 @@ function generateStandardWeekShows(travelDay?: 'monday' | 'tuesday' | 'wednesday
     filteredSchedule.push({
       day: travelDayCapitalized,
       time: "Travel",
-      callTime: "Travel", 
+      callTime: "Travel",
       status: "travel" as DayStatus
     });
   }
 
-  // Convert to Show objects
-  filteredSchedule.forEach((show, index) => {
+  // Convert to Show objects with real calendar dates
+  filteredSchedule.forEach((show) => {
     shows.push({
       id: generateId(),
-      date: show.day,
+      date: dateFor(show.day),
       time: show.time,
       callTime: show.callTime,
       status: show.status

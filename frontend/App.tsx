@@ -1,71 +1,45 @@
-import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
-import ScheduleList from './components/ScheduleList';
-import ScheduleEditor from './components/ScheduleEditor';
-import CompanyManagement from './components/CompanyManagement';
-import { AppHeader } from './components/AppHeader';
 import { AuthWrapper } from './components/AuthWrapper';
-import { AuthProvider } from './contexts/AuthContext';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AppShell } from '@/components/shell/AppShell';
+import { DashboardScreen } from '@/screens/DashboardScreen';
+import { ScheduleEditorScreen } from '@/screens/ScheduleEditorScreen';
+import { CompanyScreen } from '@/screens/CompanyScreen';
+import { ToursScreen } from '@/screens/ToursScreen';
 import { FEATURE_FLAGS } from '@/config/features';
 
-// Conditionally import TourManager only if feature is enabled
-const TourManager = FEATURE_FLAGS.MULTI_COUNTRY_TOURS 
-  ? React.lazy(() => import('./components/tours/TourManager'))
-  : null;
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: 1,
-    },
-  },
-});
-
+// NOTE: QueryClientProvider / AuthProvider / ThemeProvider live in main.tsx.
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <Router>
-          {FEATURE_FLAGS.AUTHENTICATION_ENABLED ? (
-            <AuthWrapper>
-              <AppInner />
-            </AuthWrapper>
-          ) : (
-            <AppInner />
-          )}
-        </Router>
-      </AuthProvider>
+    <Router>
+      <ErrorBoundary>
+        {FEATURE_FLAGS.AUTHENTICATION_ENABLED ? (
+          <AuthWrapper>
+            <AppRoutes />
+          </AuthWrapper>
+        ) : (
+          <AppRoutes />
+        )}
+      </ErrorBoundary>
       <Toaster />
-    </QueryClientProvider>
+    </Router>
   );
 }
 
-function AppInner() {
+function AppRoutes() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppHeader />
-      <main className="container mx-auto px-4 py-8">
-        <Routes>
-          <Route path="/" element={<ScheduleList />} />
-          <Route path="/schedule/new" element={<ScheduleEditor />} />
-          <Route path="/schedule/:id" element={<ScheduleEditor />} />
-          <Route path="/company" element={<CompanyManagement />} />
-          {FEATURE_FLAGS.MULTI_COUNTRY_TOURS && TourManager && (
-            <Route 
-              path="/tours" 
-              element={
-                <React.Suspense fallback={<div>Loading tours...</div>}>
-                  <TourManager />
-                </React.Suspense>
-              } 
-            />
-          )}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route path="/" element={<DashboardScreen />} />
+        <Route path="/schedule/new" element={<ScheduleEditorScreen />} />
+        <Route path="/schedule/:id" element={<ScheduleEditorScreen />} />
+        <Route path="/company" element={<CompanyScreen />} />
+        {FEATURE_FLAGS.MULTI_COUNTRY_TOURS && (
+          <Route path="/tours" element={<ToursScreen />} />
+        )}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
   );
 }

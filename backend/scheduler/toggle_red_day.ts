@@ -1,4 +1,6 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "encore.dev/internal/codegen/auth";
+import type { AuthData } from "../auth/encore_auth";
 import { scheduleDB } from "./db";
 import { Assignment, Show } from "./types";
 
@@ -14,13 +16,16 @@ export interface ToggleRedDayResponse {
 
 // Toggles the RED day status for a performer for an entire date.
 export const toggleRedDay = api<ToggleRedDayRequest, ToggleRedDayResponse>(
-  { expose: true, method: "PUT", path: "/schedules/:id/toggle-red-day" },
+  { expose: true, method: "PUT", path: "/schedules/:id/toggle-red-day", auth: true },
   async (req) => {
-    // First, get the existing schedule
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
+    // First, get the existing schedule (scoped to the authenticated user)
     const existingRow = await scheduleDB.queryRow`
       SELECT id, assignments_data, shows_data, updated_at
-      FROM schedules 
-      WHERE id = ${req.id}
+      FROM schedules
+      WHERE id = ${req.id} AND user_id = ${userId}
     `;
 
     if (!existingRow) {
@@ -80,10 +85,10 @@ export const toggleRedDay = api<ToggleRedDayRequest, ToggleRedDayResponse>(
     // Update the database
     const now = new Date();
     await scheduleDB.exec`
-      UPDATE schedules 
-      SET assignments_data = ${JSON.stringify(assignments)}, 
+      UPDATE schedules
+      SET assignments_data = ${JSON.stringify(assignments)},
           updated_at = ${now}
-      WHERE id = ${req.id}
+      WHERE id = ${req.id} AND user_id = ${userId}
     `;
 
     return { assignments };

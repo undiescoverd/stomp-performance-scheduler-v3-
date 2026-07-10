@@ -1,4 +1,6 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "encore.dev/internal/codegen/auth";
+import type { AuthData } from "../auth/encore_auth";
 import { scheduleDB } from "./db";
 import { Schedule, Show, Assignment } from "./types";
 
@@ -16,13 +18,16 @@ export interface UpdateScheduleResponse {
 
 // Updates a schedule.
 export const update = api<UpdateScheduleRequest, UpdateScheduleResponse>(
-  { expose: true, method: "PUT", path: "/schedules/:id" },
+  { expose: true, method: "PUT", path: "/schedules/:id", auth: true },
   async (req) => {
-    // First, get the existing schedule
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
+    // First, get the existing schedule (scoped to the authenticated user)
     const existingRow = await scheduleDB.queryRow`
       SELECT id, location, week, shows_data, assignments_data, created_at, updated_at
-      FROM schedules 
-      WHERE id = ${req.id}
+      FROM schedules
+      WHERE id = ${req.id} AND user_id = ${userId}
     `;
 
     if (!existingRow) {
@@ -36,13 +41,13 @@ export const update = api<UpdateScheduleRequest, UpdateScheduleResponse>(
     const assignments = req.assignments ?? JSON.parse(existingRow.assignments_data);
 
     await scheduleDB.exec`
-      UPDATE schedules 
-      SET location = ${location}, 
-          week = ${week}, 
-          shows_data = ${JSON.stringify(shows)}, 
-          assignments_data = ${JSON.stringify(assignments)}, 
+      UPDATE schedules
+      SET location = ${location},
+          week = ${week},
+          shows_data = ${JSON.stringify(shows)},
+          assignments_data = ${JSON.stringify(assignments)},
           updated_at = ${now}
-      WHERE id = ${req.id}
+      WHERE id = ${req.id} AND user_id = ${userId}
     `;
 
     const schedule: Schedule = {

@@ -1,6 +1,6 @@
 /**
  * Encore.ts Native Authentication Handler
- * 
+ *
  * Uses Encore's built-in authentication system instead of custom middleware
  */
 
@@ -9,13 +9,14 @@ import { authHandler } from "encore.dev/auth";
 import { APIError } from "encore.dev/api";
 import jwt from 'jsonwebtoken';
 import { authConfig, isAuthEnabled } from './config';
+import { scheduleDB } from '../scheduler/db';
 import type { JWTPayload, UserProfile } from './types';
 
 interface AuthParams {
   authorization: Header<"Authorization">;
 }
 
-interface AuthData {
+export interface AuthData {
   userID: string;
   email: string;
   sessionID: string;
@@ -40,23 +41,20 @@ export const auth = authHandler<AuthParams, AuthData>(
 
     const token = authHeader.replace('Bearer ', '');
 
+    let decoded: JWTPayload;
     try {
       // Verify and decode JWT
-      const decoded = jwt.verify(token, authConfig.jwtSecret) as JWTPayload;
-      
+      decoded = jwt.verify(token, authConfig.jwtSecret) as JWTPayload;
+
       // Check token expiration (additional validation)
       const now = Math.floor(Date.now() / 1000);
       if (decoded.exp && decoded.exp < now) {
         throw APIError.unauthenticated("Token expired");
       }
-
-      return {
-        userID: decoded.sub,
-        email: decoded.email,
-        sessionID: decoded.sessionId
-      };
     } catch (error) {
-      if (error instanceof jwt.TokenExpiredError) {
+      if (error instanceof APIError) {
+        throw error;
+      } else if (error instanceof jwt.TokenExpiredError) {
         throw APIError.unauthenticated("Authentication token has expired");
       } else if (error instanceof jwt.JsonWebTokenError) {
         throw APIError.unauthenticated("Invalid authentication token");
@@ -64,6 +62,21 @@ export const auth = authHandler<AuthParams, AuthData>(
         throw APIError.unauthenticated("Token verification failed");
       }
     }
+
+    // Verify the session is still active so logout/revocation actually takes effect.
+    const sessionRow = await scheduleDB.queryRow`
+      SELECT 1 FROM user_sessions
+      WHERE session_id = ${decoded.sessionId} AND is_active = true AND expires_at > NOW()
+    `;
+    if (!sessionRow) {
+      throw APIError.unauthenticated("Session is no longer active");
+    }
+
+    return {
+      userID: decoded.sub,
+      email: decoded.email,
+      sessionID: decoded.sessionId
+    };
   }
 );
 

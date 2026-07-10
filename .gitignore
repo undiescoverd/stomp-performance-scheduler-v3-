@@ -12,3 +12,15 @@ node_modules
 .env.development
 .env.production
 .env.staging
+
+# OS / editor cruft
+.DS_Store
+
+# Tooling & log artifacts
+.playwright-mcp/
+*.log
+*.tsbuildinfo
+
+# Stray local build output (canonical build output is backend/frontend/dist,
+# produced by `cd backend && bun run build`)
+/frontend/dist/

@@ -37,16 +37,16 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
   });
 
   describe('CRITICAL BUG FIX: Consecutive Show Prevention', () => {
-    it('should NEVER allow more than 3 consecutive shows', async () => {
+    it('should never allow more than 6 consecutive shows', async () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
-      
+
       // Run multiple attempts to ensure consistency
       for (let attempt = 0; attempt < 10; attempt++) {
         const result = await algorithm.autoGenerate();
-        
+
         if (result.success) {
           const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
-          
+
           // Check every performer's consecutive show count
           for (const member of defaultCastMembers) {
             const memberShows = stageAssignments
@@ -54,33 +54,62 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
               .map(a => weekShows.find(s => s.id === a.showId)!)
               .filter(Boolean)
               .sort((a, b) => new Date(`${a.date}T${a.time}`).getTime() - new Date(`${b.date}T${b.time}`).getTime());
-            
+
             if (memberShows.length === 0) continue;
 
-            // Check consecutive sequences
+            // Independently recompute the consecutive run using the §0 rule:
+            // DATES ONLY, a gap day resets the run, and a same-day matinee +
+            // evening double counts as 2. (Do not trust the validator here.)
             let maxConsecutive = 1;
             let currentConsecutive = 1;
-            
+
             for (let i = 1; i < memberShows.length; i++) {
-              const prevDate = new Date(`${memberShows[i-1].date}T${memberShows[i-1].time}`);
-              const currDate = new Date(`${memberShows[i].date}T${memberShows[i].time}`);
-              const daysDiff = (currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24);
-              
-              if (daysDiff <= 2) { // Within 2 days = consecutive
+              const prevDay = new Date(`${memberShows[i-1].date}T12:00:00Z`).getTime();
+              const currDay = new Date(`${memberShows[i].date}T12:00:00Z`).getTime();
+              const dayDiff = Math.round((currDay - prevDay) / (1000 * 60 * 60 * 24));
+
+              if (dayDiff === 0 || dayDiff === 1) { // same date (double) or adjacent date
                 currentConsecutive++;
                 maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
               } else {
                 currentConsecutive = 1;
               }
             }
-            
-            // UPDATED: Must never exceed 6 consecutive shows (changed from 3)
-            expect(maxConsecutive).toBeLessThanOrEqual(6, 
+
+            // 6 consecutive shows is LEGAL; only 7+ is a violation.
+            expect(maxConsecutive).toBeLessThanOrEqual(6,
               `${member.name} has ${maxConsecutive} consecutive shows - CRITICAL VIOLATION! Shows: ${memberShows.map(s => `${s.date} ${s.time}`).join(', ')}`
             );
           }
         }
       }
+    });
+
+    it('does not chain a run across a gap day (regression for the old <=2 bug)', () => {
+      // Performer works Tue mat+eve, Wed, Thu, Fri, then Sun mat+eve — with
+      // SATURDAY entirely off. Tue and Sun are the only double days and are NOT
+      // adjacent, so there is no back-to-back-doubles violation. That is 7
+      // shows total, but the Sat gap resets the run: the longest true run is
+      // Tue mat,Tue eve,Wed,Thu,Fri = 5. The old datetime `<= 2` logic wrongly
+      // chained Fri -> Sun into a single 7-run and produced a false error.
+      const gapShows: Show[] = [
+        { id: "tue_mat", date: "2024-01-02", time: "16:00", callTime: "14:00", status: "show" },
+        { id: "tue_eve", date: "2024-01-02", time: "21:00", callTime: "18:00", status: "show" },
+        { id: "wed",     date: "2024-01-03", time: "21:00", callTime: "19:00", status: "show" },
+        { id: "thu",     date: "2024-01-04", time: "21:00", callTime: "19:00", status: "show" },
+        { id: "fri",     date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" },
+        // Saturday: no shows for this performer (full gap day)
+        { id: "sun_mat", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" },
+        { id: "sun_eve", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" }
+      ];
+
+      const algorithm = new SchedulingAlgorithm(gapShows, defaultCastMembers);
+      // PHIL plays Sarge in every one of these 7 shows.
+      const assignments = gapShows.map(s => ({ showId: s.id, role: "Sarge" as Role, performer: "PHIL" }));
+
+      const result = algorithm.validateSchedule(assignments);
+      const consecutiveErrors = result.errors.filter(e => e.includes("consecutive shows"));
+      expect(consecutiveErrors).toEqual([]);
     });
 
     it('should prevent consecutive show violations during assignment, not just validate after', () => {
@@ -109,63 +138,403 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
     });
   });
 
-  describe('CRITICAL BUG FIX: Weekend 4-Show Rule Prevention', () => {
-    it('should NEVER allow Friday-Saturday-Sunday 4-show pattern', async () => {
+  describe('Back-to-Back Double Days Prevention (governs weekend fatigue)', () => {
+    // Helper: does any performer perform 4 shows across 2 adjacent dates?
+    const hasBackToBackDoubles = (assignments: { showId: string; role: string; performer: string }[], shows: Show[]): boolean => {
+      const showById = new Map(shows.map(s => [s.id, s]));
+      const byPerformer: Record<string, Record<string, number>> = {};
+      for (const a of assignments) {
+        if (a.role === 'OFF') continue;
+        const show = showById.get(a.showId);
+        if (!show) continue;
+        byPerformer[a.performer] ??= {};
+        byPerformer[a.performer][show.date] = (byPerformer[a.performer][show.date] || 0) + 1;
+      }
+      for (const dates of Object.values(byPerformer)) {
+        const sorted = Object.keys(dates).sort();
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const d1 = new Date(`${sorted[i]}T12:00:00Z`).getTime();
+          const d2 = new Date(`${sorted[i + 1]}T12:00:00Z`).getTime();
+          const dayDiff = Math.round((d2 - d1) / 86400000);
+          if (dayDiff === 1 && dates[sorted[i]] === 2 && dates[sorted[i + 1]] === 2) return true;
+        }
+      }
+      return false;
+    };
+
+    it('validation flags Sat double + Sun double as a back-to-back violation', () => {
       const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
-      
-      for (let attempt = 0; attempt < 10; attempt++) {
+      const assignments = [
+        { showId: 'sat_mat', role: 'Sarge' as Role, performer: 'PHIL' },
+        { showId: 'sat_eve', role: 'Sarge' as Role, performer: 'PHIL' },
+        { showId: 'sun_mat', role: 'Sarge' as Role, performer: 'PHIL' },
+        { showId: 'sun_eve', role: 'Sarge' as Role, performer: 'PHIL' }
+      ];
+      const result = algorithm.validateSchedule(assignments);
+      const b2bErrors = result.errors.filter(e => e.includes('back-to-back double days'));
+      expect(b2bErrors.length).toBeGreaterThan(0);
+    });
+
+    it('validation flags MID-WEEK back-to-back doubles too (rule is date-agnostic)', () => {
+      const midWeekShows: Show[] = [
+        { id: 'wed_mat', date: '2024-01-03', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'wed_eve', date: '2024-01-03', time: '21:00', callTime: '18:00', status: 'show' },
+        { id: 'thu_mat', date: '2024-01-04', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'thu_eve', date: '2024-01-04', time: '21:00', callTime: '18:00', status: 'show' }
+      ];
+      const algorithm = new SchedulingAlgorithm(midWeekShows, defaultCastMembers);
+      const assignments = midWeekShows.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL' }));
+      const result = algorithm.validateSchedule(assignments);
+      expect(result.errors.filter(e => e.includes('back-to-back double days')).length).toBeGreaterThan(0);
+    });
+
+    it('generation never produces back-to-back doubles on a standard week', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      for (let attempt = 0; attempt < 20; attempt++) {
         const result = await algorithm.autoGenerate();
-        
         if (result.success) {
-          const stageAssignments = result.assignments.filter(a => a.role !== "OFF");
-          
-          for (const member of defaultCastMembers) {
-            const memberAssignments = stageAssignments.filter(a => a.performer === member.name);
-            
-            // Group by date
-            const showsByDate: Record<string, number> = {};
-            memberAssignments.forEach(assignment => {
-              const show = weekShows.find(s => s.id === assignment.showId)!;
-              showsByDate[show.date] = (showsByDate[show.date] || 0) + 1;
-            });
-            
-            // Check Friday-Saturday-Sunday pattern (2024-01-05 to 2024-01-07)
-            const fridayShows = showsByDate["2024-01-05"] || 0;
-            const saturdayShows = showsByDate["2024-01-06"] || 0;
-            const sundayShows = showsByDate["2024-01-07"] || 0;
-            const weekendTotal = fridayShows + saturdayShows + sundayShows;
-            
-            // CRITICAL: Must never exceed 4 shows over Friday-Sunday (mathematically, exactly 1 person will have 4 shows)
-            expect(weekendTotal).toBeLessThanOrEqual(4, 
-              `${member.name} has ${weekendTotal} shows over Fri-Sun (${fridayShows} Fri, ${saturdayShows} Sat, ${sundayShows} Sun) - WEEKEND RULE VIOLATION!`
-            );
-          }
+          expect(hasBackToBackDoubles(result.assignments, weekShows)).toBe(false);
         }
       }
     });
 
-    it('should prevent weekend rule violations during assignment', () => {
-      const weekendShows = [
-        { id: "fri", date: "2024-01-05", time: "21:00", callTime: "18:00", status: "show" as const },
-        { id: "sat_mat", date: "2024-01-06", time: "16:00", callTime: "14:00", status: "show" as const },
-        { id: "sat_eve", date: "2024-01-06", time: "21:00", callTime: "18:00", status: "show" as const },
-        { id: "sun_mat", date: "2024-01-07", time: "16:00", callTime: "14:30", status: "show" as const },
-        { id: "sun_eve", date: "2024-01-07", time: "19:00", callTime: "18:00", status: "show" as const }
+    it('allows 5 Fri-Sun shows when the double days are NOT adjacent (Fri-Sun cap is gone)', () => {
+      // Fri double + Sat single + Sun double = 5 Fri-Sun shows, but Fri and Sun
+      // doubles are separated by Sat, so there is no back-to-back pattern. The
+      // old Fri-Sun <=4 cap wrongly rejected this; it is now legal.
+      const splitShows: Show[] = [
+        { id: 'fri_mat', date: '2024-01-05', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'fri_eve', date: '2024-01-05', time: '21:00', callTime: '18:00', status: 'show' },
+        { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+        { id: 'sun_mat', date: '2024-01-07', time: '16:00', callTime: '14:30', status: 'show' },
+        { id: 'sun_eve', date: '2024-01-07', time: '19:00', callTime: '18:00', status: 'show' }
       ];
-      
-      const algorithm = new SchedulingAlgorithm(weekendShows, defaultCastMembers);
-      
-      // Manually assign performer to first 4 shows
+      const algorithm = new SchedulingAlgorithm(splitShows, defaultCastMembers);
+      const assignments = splitShows.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL' }));
+
+      const result = algorithm.validateSchedule(assignments);
+      expect(result.errors.filter(e => e.includes('back-to-back double days'))).toEqual([]);
+      expect(result.errors.filter(e => e.includes('over a weekend'))).toEqual([]);
+
+      // And during generation, PHIL playing 4 of these 5 shows is still eligible
+      // for the 5th (no weekend cap blocks it).
       (algorithm as any).assignments = new Map([
-        ["fri", { "Sarge": "PHIL" }],
-        ["sat_mat", { "Sarge": "PHIL" }], 
-        ["sat_eve", { "Sarge": "PHIL" }],
-        ["sun_mat", { "Sarge": "PHIL" }]
+        ['fri_mat', { Sarge: 'PHIL' }],
+        ['fri_eve', { Sarge: 'PHIL' }],
+        ['sat_mat', { Sarge: 'PHIL' }],
+        ['sun_mat', { Sarge: 'PHIL' }]
       ]);
-      
-      // Should prevent assignment to 5th weekend show (would create 5-show weekend)
-      const wouldViolate = (algorithm as any).wouldViolateWeekendRule("PHIL", "sun_eve");
-      expect(wouldViolate).toBe(true, "Algorithm should detect weekend rule violation");
+      const wouldViolate = (algorithm as any).wouldViolateBackToBackDoubleDays('PHIL', 'sun_eve');
+      expect(wouldViolate).toBe(false);
+    });
+  });
+
+  describe('RED-day refill and re-validation (Phase 3)', () => {
+    const allRolesSet = new Set<string>(allRoles);
+
+    it('every successful generation ships fully-cast shows AND 1 full-day RED per performer', async () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const showDates = new Map(weekShows.map(s => [s.id, s.date]));
+
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const result = await algorithm.autoGenerate();
+        if (!result.success) continue;
+
+        // (a) Every show: exactly 8 unique performers filling all 8 roles.
+        for (const show of weekShows.filter(s => s.status === 'show')) {
+          const stage = result.assignments.filter(a => a.showId === show.id && a.role !== 'OFF');
+          const roles = new Set(stage.map(a => a.role));
+          const performers = new Set(stage.map(a => a.performer));
+          expect(stage.length).toBe(8);
+          expect(roles.size).toBe(8);
+          expect(performers.size).toBe(8);
+          expect([...roles].every(r => allRolesSet.has(r as string))).toBe(true);
+        }
+
+        // (b) & (c) Every performer: exactly 1 RED day, and it is a full day off.
+        for (const member of defaultCastMembers) {
+          const redDates = new Set(
+            result.assignments
+              .filter(a => a.performer === member.name && a.role === 'OFF' && a.isRedDay)
+              .map(a => showDates.get(a.showId))
+          );
+          expect(redDates.size).toBe(1);
+
+          const redDate = [...redDates][0];
+          const worksOnRedDate = result.assignments.some(a =>
+            a.performer === member.name && a.role !== 'OFF' && showDates.get(a.showId) === redDate
+          );
+          expect(worksOnRedDate).toBe(false);
+        }
+      }
+    });
+
+    it('findRefillCandidate returns an eligible, constraint-clean substitute', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const tue = weekShows.find(s => s.id === 'tue')!;
+      // No one assigned yet; refilling Sarge that PHIL vacated -> SEAN (the only
+      // other Sarge-eligible performer).
+      const pick = (algorithm as any).findRefillCandidate([], tue, 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBe('SEAN');
+    });
+
+    it('findRefillCandidate returns null when the only substitute is unavailable', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const tue = weekShows.find(s => s.id === 'tue')!;
+      // SEAN already on stage in this show -> no eligible substitute for Sarge.
+      const current = [{ showId: 'tue', role: 'Potato', performer: 'SEAN' }];
+      const pick = (algorithm as any).findRefillCandidate(current, tue, 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBeNull();
+
+      // SEAN's own RED day is this date -> excluded.
+      const pick2 = (algorithm as any).findRefillCandidate([], tue, 'Sarge', 'PHIL', { SEAN: tue.date }, new Set());
+      expect(pick2).toBeNull();
+    });
+
+    it('forced-RED refill: directly exercises assignRedDays when a performer works every date', () => {
+      // Three single-show weekdays. PHIL (Sarge-only) is cast every day, so he
+      // has NO natural day off and MUST go through the forced-RED + refill path;
+      // every other performer gets at least one natural day off. The refill has
+      // to move PHIL off one date and substitute SEAN (the only other Sarge) —
+      // a fully valid 8-cast schedule, so casting must be preserved afterward.
+      const days: Show[] = [
+        { id: 'd1', date: '2024-01-02', time: '19:00', callTime: '18:00', status: 'show' },
+        { id: 'd2', date: '2024-01-03', time: '19:00', callTime: '18:00', status: 'show' },
+        { id: 'd3', date: '2024-01-04', time: '19:00', callTime: '18:00', status: 'show' }
+      ];
+      const cast = (showId: string, roles: Record<string, string>) =>
+        Object.entries(roles).map(([role, performer]) => ({ showId, role: role as Role, performer }));
+
+      const stage = [
+        ...cast('d1', { Sarge: 'PHIL', Potato: 'JAMIE', Ringo: 'ADAM', Particle: 'CARY', Mozzie: 'JOE', Who: 'JOSH', Bin: 'MOLLY', Cornish: 'JASMINE' }),
+        ...cast('d2', { Sarge: 'PHIL', Potato: 'SEAN', Mozzie: 'JOSE', Particle: 'ADAM', Who: 'JOSH', Ringo: 'CADE', Bin: 'JASMINE', Cornish: 'SERENA' }),
+        ...cast('d3', { Sarge: 'PHIL', Potato: 'JAMIE', Particle: 'CARY', Mozzie: 'JOSE', Ringo: 'JOE', Who: 'CADE', Bin: 'MOLLY', Cornish: 'SERENA' })
+      ];
+
+      const algorithm = new SchedulingAlgorithm(days, defaultCastMembers);
+      const result: any[] = (algorithm as any).assignRedDays(stage);
+      const warnings: string[] = (algorithm as any).lastRedDayWarnings;
+
+      // Casting preserved: every show still has 8 unique performers, 8 roles.
+      for (const show of days) {
+        const onStage = result.filter(a => a.showId === show.id && a.role !== 'OFF');
+        expect(onStage.length).toBe(8);
+        expect(new Set(onStage.map(a => a.role)).size).toBe(8);
+        expect(new Set(onStage.map(a => a.performer)).size).toBe(8);
+      }
+
+      // Every performer gets exactly one RED day, and it is a full day off.
+      const showDate = new Map(days.map(s => [s.id, s.date]));
+      for (const member of defaultCastMembers) {
+        const redDates = new Set(result.filter(a => a.performer === member.name && a.role === 'OFF' && a.isRedDay).map(a => showDate.get(a.showId)));
+        expect(redDates.size).toBe(1);
+        const worksOnRed = result.some(a => a.performer === member.name && a.role !== 'OFF' && showDate.get(a.showId) === [...redDates][0]);
+        expect(worksOnRed).toBe(false);
+      }
+      expect(warnings).toEqual([]);
+    });
+
+    it('findRefillCandidate rejects a sub that would create back-to-back doubles', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      const sunEve = weekShows.find(s => s.id === 'sun_eve')!;
+      // SEAN already plays a Saturday double + Sunday matinee. Adding SEAN to
+      // Sunday evening makes Sat + Sun both doubles => back-to-back. SEAN is the
+      // only Sarge sub besides PHIL, so the candidate is rejected -> null.
+      const current = [
+        { showId: 'sat_mat', role: 'Potato', performer: 'SEAN' },
+        { showId: 'sat_eve', role: 'Potato', performer: 'SEAN' },
+        { showId: 'sun_mat', role: 'Potato', performer: 'SEAN' }
+      ];
+      const pick = (algorithm as any).findRefillCandidate(current, sunEve, 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBeNull();
+    });
+
+    it('findRefillCandidate rejects a sub that would exceed the weekly / consecutive cap', () => {
+      const singleWeek: Show[] = ['2024-01-02','2024-01-03','2024-01-04','2024-01-05','2024-01-06','2024-01-07','2024-01-08']
+        .map((date, i) => ({ id: `s${i}`, date, time: '19:00', callTime: '18:00', status: 'show' as const }));
+      const algorithm = new SchedulingAlgorithm(singleWeek, defaultCastMembers);
+      // SEAN already works 6 shows; adding a 7th exceeds the weekly cap of 6.
+      const current = singleWeek.slice(0, 6).map(s => ({ showId: s.id, role: 'Potato', performer: 'SEAN' }));
+      const pick = (algorithm as any).findRefillCandidate(current, singleWeek[6], 'Sarge', 'PHIL', {}, new Set());
+      expect(pick).toBeNull();
+    });
+
+    it('pure run counters honor the §0 date rules', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers);
+      // Adjacent dates: 2 (double) + 1 = run of 3.
+      expect((algorithm as any).maxConsecutiveFromDateCounts({ '2024-01-02': 2, '2024-01-03': 1 })).toBe(3);
+      // Gap day resets: max is a single date's count.
+      expect((algorithm as any).maxConsecutiveFromDateCounts({ '2024-01-02': 2, '2024-01-04': 1 })).toBe(2);
+      // Adjacent doubles = back-to-back; non-adjacent doubles are not.
+      expect((algorithm as any).hasBackToBackDoublesFromDateCounts({ '2024-01-06': 2, '2024-01-07': 2 })).toBe(true);
+      expect((algorithm as any).hasBackToBackDoublesFromDateCounts({ '2024-01-05': 2, '2024-01-07': 2 })).toBe(false);
+    });
+  });
+
+  describe('Manual injury override (Phase 4)', () => {
+    const doubleWeekend: Show[] = [
+      { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+      { id: 'sat_eve', date: '2024-01-06', time: '21:00', callTime: '18:00', status: 'show' },
+      { id: 'sun_mat', date: '2024-01-07', time: '16:00', callTime: '14:30', status: 'show' },
+      { id: 'sun_eve', date: '2024-01-07', time: '19:00', callTime: '18:00', status: 'show' }
+    ];
+    const philAll = (isOverride?: boolean) => doubleWeekend.map(s => ({
+      showId: s.id, role: 'Sarge' as Role, performer: 'PHIL', ...(isOverride ? { isOverride: true } : {})
+    }));
+
+    it('downgrades a back-to-back-doubles violation to a warning when overridden', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule(philAll(true));
+      expect(result.errors.filter(e => e.includes('back-to-back double days'))).toEqual([]);
+      expect(result.warnings.some(w => w.includes('manual override'))).toBe(true);
+    });
+
+    it('still reports a back-to-back-doubles ERROR without the override flag (regression)', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule(philAll(false));
+      expect(result.errors.some(e => e.includes('back-to-back double days'))).toBe(true);
+    });
+
+    it('downgrades a weekly >6 violation to a warning when overridden', () => {
+      const singleWeek: Show[] = ['2024-01-02','2024-01-03','2024-01-04','2024-01-05','2024-01-06','2024-01-07','2024-01-08']
+        .map((date, i) => ({ id: `s${i}`, date, time: '19:00', callTime: '18:00', status: 'show' as const }));
+      const algorithm = new SchedulingAlgorithm(singleWeek, defaultCastMembers);
+      const seven = singleWeek.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL', isOverride: true }));
+      const result = algorithm.validateSchedule(seven);
+      expect(result.errors.filter(e => e.includes('exceeds maximum of 6 shows'))).toEqual([]);
+      expect(result.warnings.some(w => w.includes('shows this week') && w.includes('manual override'))).toBe(true);
+    });
+
+    it('override does NOT bypass casting/eligibility errors', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      // PHIL (Sarge-only) flagged as override on the female-only Bin role — the
+      // override must not suppress the eligibility error.
+      const bad = [{ showId: 'sat_mat', role: 'Bin' as Role, performer: 'PHIL', isOverride: true }];
+      const result = algorithm.validateSchedule(bad);
+      expect(result.errors.some(e => e.includes('not in eligible roles'))).toBe(true);
+    });
+  });
+
+  describe('Structured rule codes (Phase 5)', () => {
+    const doubleWeekend: Show[] = [
+      { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+      { id: 'sat_eve', date: '2024-01-06', time: '21:00', callTime: '18:00', status: 'show' },
+      { id: 'sun_mat', date: '2024-01-07', time: '16:00', callTime: '14:30', status: 'show' },
+      { id: 'sun_eve', date: '2024-01-07', time: '19:00', callTime: '18:00', status: 'show' }
+    ];
+
+    it('validateSchedule emits structured items alongside the derived error strings', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const assignments = doubleWeekend.map(s => ({ showId: s.id, role: 'Sarge' as Role, performer: 'PHIL' }));
+      const result = algorithm.validateSchedule(assignments);
+      const b2b = result.items.find(i => i.code === 'BACK_TO_BACK_DOUBLES');
+      expect(b2b).toBeTruthy();
+      expect(b2b!.severity).toBe('error');
+      expect(b2b!.performer).toBe('PHIL');
+      // derived view still carries the human-readable message
+      expect(result.errors).toContain(b2b!.message);
+    });
+
+    it('the retry gate keys off the CODE, not the message text', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers) as any;
+      // Same code, arbitrarily reworded message -> still critical.
+      expect(algorithm.hasCriticalErrors([{ code: 'BACK_TO_BACK_DOUBLES', severity: 'error', message: 'totally different wording' }])).toBe(true);
+      // A non-critical code whose message happens to contain the old trigger
+      // string -> NOT critical (proves we no longer string-match).
+      expect(algorithm.hasCriticalErrors([{ code: 'UNDERUTILIZED', severity: 'warning', message: 'back-to-back double days exactly 8' }])).toBe(false);
+      // An overridden fatigue item is warning severity -> not critical.
+      expect(algorithm.hasCriticalErrors([{ code: 'BACK_TO_BACK_DOUBLES', severity: 'warning', message: 'override' }])).toBe(false);
+    });
+
+    it('closes the eligibility/gender hole: ineligible role assignment is now critical', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers) as any;
+      // PHIL is not eligible for Bin. The old string-matcher checked
+      // "not eligible" and missed the real string "not in eligible roles".
+      const result = algorithm.validateSchedule([{ showId: 'sat_mat', role: 'Bin', performer: 'PHIL' }]);
+      expect(result.items.some((i: any) => i.code === 'ROLE_INELIGIBLE' && i.severity === 'error')).toBe(true);
+      expect(algorithm.hasCriticalErrors(result.items)).toBe(true);
+    });
+
+    it('a male performer manually assigned to Bin/Cornish is flagged as a warning, not blocked', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, [
+        ...defaultCastMembers,
+        { name: 'MALEBIN', eligibleRoles: ['Bin'], gender: 'male' as const }
+      ]) as any;
+      const result = algorithm.validateSchedule([{ showId: 'sat_mat', role: 'Bin', performer: 'MALEBIN' }]);
+      const item = result.items.find((i: any) => i.code === 'GENDER_VIOLATION');
+      expect(item).toBeTruthy();
+      expect(item!.severity).toBe('warning');
+      // The GENDER_VIOLATION item alone must not trip the retry gate (unlike
+      // the incomplete-casting errors also present for this partial show).
+      expect(algorithm.hasCriticalErrors([item])).toBe(false);
+    });
+  });
+
+  describe('ignoreUnstartedShows option (clean-slate validation noise fix)', () => {
+    const doubleWeekend: Show[] = [
+      { id: 'sat_mat', date: '2024-01-06', time: '16:00', callTime: '14:00', status: 'show' },
+      { id: 'sat_eve', date: '2024-01-06', time: '21:00', callTime: '18:00', status: 'show' }
+    ];
+
+    it('by default (no option) still flags a fully-empty show as CASTING_INCOMPLETE', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule([]);
+      expect(result.items.filter(i => i.code === 'CASTING_INCOMPLETE').length).toBeGreaterThan(0);
+    });
+
+    it('with ignoreUnstartedShows, a fully-empty show emits no CASTING_INCOMPLETE', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule([], { ignoreUnstartedShows: true });
+      expect(result.items.filter(i => i.code === 'CASTING_INCOMPLETE').length).toBe(0);
+      expect(result.errors.length).toBe(0);
+    });
+
+    it('with ignoreUnstartedShows, a show with at least one assignment still flags missing performers/roles', () => {
+      const algorithm = new SchedulingAlgorithm(doubleWeekend, defaultCastMembers);
+      const result = algorithm.validateSchedule(
+        [{ showId: 'sat_mat', role: 'Sarge' as Role, performer: 'PHIL' }],
+        { ignoreUnstartedShows: true }
+      );
+      expect(result.items.some(i => i.code === 'CASTING_INCOMPLETE' && i.showId === 'sat_mat')).toBe(true);
+      // The untouched sat_eve show is still suppressed.
+      expect(result.items.some(i => i.code === 'CASTING_INCOMPLETE' && i.showId === 'sat_eve')).toBe(false);
+    });
+  });
+
+  describe('Data-model & consistency hardening (Phase 6)', () => {
+    it('isWeekend is timezone-safe (Saturday is Saturday everywhere)', () => {
+      const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers) as any;
+      // 2026-07-11 is a Saturday; 2026-07-10 a Friday. Old local-time getDay()
+      // would shift these by a day in negative-offset zones.
+      expect(algorithm.isWeekend('2026-07-11')).toBe(true);
+      expect(algorithm.isWeekend('2026-07-12')).toBe(true);  // Sunday
+      expect(algorithm.isWeekend('2026-07-10')).toBe(false); // Friday
+    });
+
+    it('gender comes from the explicit field, with a role-based fallback for legacy records', () => {
+      // Cast WITHOUT a gender field -> female inferred from Bin/Cornish eligibility.
+      const legacy = new SchedulingAlgorithm(weekShows, defaultCastMembers) as any;
+      expect(legacy.isFemalePerformer('MOLLY')).toBe(true);
+      expect(legacy.isFemalePerformer('PHIL')).toBe(false);
+
+      // Cast WITH an explicit gender field -> field wins.
+      const gendered = new SchedulingAlgorithm(weekShows, [
+        { name: 'ALEX', eligibleRoles: ['Sarge'], gender: 'female' },
+        { name: 'PHIL', eligibleRoles: ['Sarge'], gender: 'male' }
+      ]) as any;
+      expect(gendered.isFemalePerformer('ALEX')).toBe(true);
+      expect(gendered.isFemalePerformer('PHIL')).toBe(false);
+    });
+
+    it('auto-generation still defaults to a female performer for Bin/Cornish', () => {
+      // This governs the auto-generate candidate pool only (see the
+      // GENDER_VIOLATION warning tests above for manual assignment, which is
+      // allowed as a rare exception).
+      const algorithm = new SchedulingAlgorithm(weekShows, [
+        ...defaultCastMembers,
+        { name: 'MALEBIN', eligibleRoles: ['Bin'], gender: 'male' }
+      ]) as any;
+      expect(algorithm.isPerformerEligibleForRole('MALEBIN', 'Bin')).toBe(false);
     });
   });
 
@@ -368,6 +737,59 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
         expect(result.errors).toBeDefined();
         expect(result.errors!.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  // A show whose time isn't set yet carries time "TBC". The old sort built a
+  // Date from `${date}T${time}`, and `new Date("2024-01-04TTBC").getTime()` is
+  // NaN. A NaN comparator makes Array.sort return an arbitrary order *silently*,
+  // so every consecutive-show and fatigue check downstream reads a week that
+  // never existed. These tests pin the order rather than merely asserting no throw.
+  describe('TBC show times', () => {
+    const orderOf = (algorithm: SchedulingAlgorithm) =>
+      (algorithm as any).getSortedActiveShows().map((s: Show) => s.id);
+
+    // The TBC show is fed in FIRST, out of position. A NaN comparator is treated
+    // as 0, which leaves an element where it sits — so a broken sort returns it
+    // still at the front. Only a real sort walks it into Thursday evening.
+    const withTbcFirst = (): Show[] => [
+      { id: "thu_tbc", date: "2024-01-04", time: "TBC", callTime: "TBC", status: "show" },
+      ...weekShows,
+    ];
+
+    it('sorts a mid-week TBC show last within its own day', () => {
+      const algorithm = new SchedulingAlgorithm(withTbcFirst(), defaultCastMembers);
+
+      expect(orderOf(algorithm)).toEqual([
+        "tue", "wed", "thu", "thu_tbc", "fri", "sat_mat", "sat_eve", "sun_mat", "sun_eve",
+      ]);
+    });
+
+    it('returns the same order on a second call (the sort is memoised)', () => {
+      const algorithm = new SchedulingAlgorithm(withTbcFirst(), defaultCastMembers);
+      const first = orderOf(algorithm);
+      expect(orderOf(algorithm)).toEqual(first);
+      expect(first[3]).toBe("thu_tbc");
+    });
+
+    it('leaves an all-known-times week in the order it always had', () => {
+      const shuffled = [weekShows[5], weekShows[0], weekShows[7], weekShows[2],
+                        weekShows[4], weekShows[1], weekShows[6], weekShows[3]];
+      const algorithm = new SchedulingAlgorithm(shuffled, defaultCastMembers);
+      expect(orderOf(algorithm)).toEqual([
+        "tue", "wed", "thu", "fri", "sat_mat", "sat_eve", "sun_mat", "sun_eve",
+      ]);
+    });
+
+    it('never leaks the string "Invalid Date" into a user-facing message', () => {
+      const format = (date: string, time: string) =>
+        (new SchedulingAlgorithm(weekShows, defaultCastMembers) as any)
+          .formatDateForValidation(date, time) as string;
+
+      for (const unknown of ["TBC", ""]) {
+        expect(format("2024-01-04", unknown)).not.toContain("Invalid Date");
+      }
+      expect(format("2024-01-04", "TBC")).toContain("TBC");
     });
   });
 });

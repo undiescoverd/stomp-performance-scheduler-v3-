@@ -1,6 +1,8 @@
 import { api } from "encore.dev/api";
 import { Show, Assignment } from "./types";
 import { SchedulingAlgorithm, ConstraintResult } from "./algorithm";
+import { areDatesConsecutive } from "./date_rules";
+import { TBC, isKnownTime, showSortKey } from "./time";
 
 export interface ValidateComprehensiveRequest {
   shows: Show[];
@@ -35,6 +37,39 @@ export interface ConsecutiveShowAnalysis {
     count: number;
     severity: "ok" | "warning" | "critical";
   }>;
+}
+
+/**
+ * A run, plus the shows it spans. `showIds` stays internal: it is what lets
+ * `getConsecutiveShowSuggestions` name a real show without re-deriving the run from
+ * `startDate`/`endDate`, which are *display* strings and must never be parsed.
+ */
+interface ConsecutiveSequenceInternal {
+  startDate: string;
+  endDate: string;
+  count: number;
+  severity: "ok" | "warning" | "critical";
+  showIds: string[];
+}
+
+export interface ConsecutiveShowAnalysisInternal {
+  performer: string;
+  maxConsecutive: number;
+  sequences: ConsecutiveSequenceInternal[];
+}
+
+/**
+ * Drop `showIds` on the way to the API response, keeping the wire format unchanged.
+ *
+ * This has to be explicit. `ConsecutiveShowAnalysisInternal` is structurally assignable
+ * to `ConsecutiveShowAnalysis`, and excess-property checks don't fire on a non-literal,
+ * so omitting this call would compile clean and silently widen the public API.
+ */
+export function toPublicAnalysis(analysis: ConsecutiveShowAnalysisInternal[]): ConsecutiveShowAnalysis[] {
+  return analysis.map(a => ({
+    ...a,
+    sequences: a.sequences.map(({ showIds, ...rest }) => rest),
+  }));
 }
 
 export interface ValidateComprehensiveResponse {
@@ -74,7 +109,7 @@ export const validateComprehensive = api<ValidateComprehensiveRequest, ValidateC
     const castData = await getCastMembers();
     
     const algorithm = new SchedulingAlgorithm(req.shows, castData.castMembers);
-    const basicValidation = algorithm.validateSchedule(req.assignments);
+    const basicValidation = algorithm.validateSchedule(req.assignments, { ignoreUnstartedShows: true });
     
     const issues: ValidationIssue[] = [];
     const recommendations: string[] = [];
@@ -86,14 +121,21 @@ export const validateComprehensive = api<ValidateComprehensiveRequest, ValidateC
     // Helper function to format dates
     const formatDateForDisplay = (date: string, time: string): string => {
       try {
-        const dateObj = new Date(date);
-        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
-        const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        // Noon-UTC anchor + explicit UTC formatting so the weekday/date match
+        // the calendar date in every timezone.
+        const dateObj = new Date(date + "T12:00:00Z");
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+        const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+        // An unknown time must not be parsed — see formatDateForValidation in
+        // algorithm.ts. It renders "Invalid Date" into the message and never throws.
+        if (!isKnownTime(time)) return `${dayName} ${monthDay} ${TBC}`;
+
         const [hours, minutes] = time.split(':');
         const timeObj = new Date();
         timeObj.setHours(parseInt(hours), parseInt(minutes));
         const timeStr = timeObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-        
+
         return `${dayName} ${monthDay} ${timeStr}`;
       } catch (error) {
         return `${date} ${time}`;
@@ -248,7 +290,7 @@ export const validateComprehensive = api<ValidateComprehensiveRequest, ValidateC
       },
       issues,
       loadBalancing,
-      consecutiveAnalysis,
+      consecutiveAnalysis: toPublicAnalysis(consecutiveAnalysis),
       roleCompleteness,
       specialDayHandling,
       recommendations
@@ -303,13 +345,17 @@ function validateRoleEligibilityWithSuggestions(assignments: Assignment[], castM
   return issues;
 }
 
-function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[], castMembers: any[], formatDateForDisplay: Function, getAlternativePerformers: Function): ConsecutiveShowAnalysis[] {
-  const analysis: ConsecutiveShowAnalysis[] = [];
+export function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[], castMembers: any[], formatDateForDisplay: Function, getAlternativePerformers: Function): ConsecutiveShowAnalysisInternal[] {
+  const analysis: ConsecutiveShowAnalysisInternal[] = [];
   
   castMembers.forEach(member => {
     const memberShows = new Set<string>();
     assignments.forEach(assignment => {
-      if (assignment.performer === member.name) {
+      // An OFF show is not a performance. Counting one toward a burnout run inflates
+      // `count`, and `count > 6` is the only gate that marks a run critical — so an OFF
+      // day could manufacture a false burnout violation. algorithm.ts:1748 and the
+      // frontend's analyzeFatigue both exclude OFF; this is the rule, not an optimisation.
+      if (assignment.performer === member.name && assignment.role !== "OFF") {
         memberShows.add(assignment.showId);
       }
     });
@@ -324,13 +370,11 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
     }
     
     // Sort shows by date and time
+    // showSortKey, not a raw time compare: "TBC" sorts after every digit and
+    // would drop a timeless show into the wrong slot of the sequence.
     const sortedShows = [...activeShows]
       .filter(show => memberShows.has(show.id))
-      .sort((a, b) => {
-        const dateCompare = a.date.localeCompare(b.date);
-        if (dateCompare !== 0) return dateCompare;
-        return a.time.localeCompare(b.time);
-      });
+      .sort((a, b) => showSortKey(a.date, a.time).localeCompare(showSortKey(b.date, b.time)));
     
     const sequences: Array<{
       startDate: string;
@@ -342,15 +386,13 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
     
     let currentSequence: { startDate: string; endDate: string; count: number; showIds: string[]; severity?: "ok" | "warning" | "critical" } | null = null;
     let maxConsecutive = 0;
-    let lastShowDate: Date | null = null;
-    
+    let lastShowDateStr: string | null = null;
+
     sortedShows.forEach((show, index) => {
-      const showDate = new Date(`${show.date}T${show.time}`);
-      
-      if (lastShowDate) {
-        const daysDiff = Math.floor((showDate.getTime() - lastShowDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (daysDiff <= 2) { // Consider consecutive if within 2 days
+      if (lastShowDateStr) {
+        // DATES ONLY: a gap day resets the run; a same-day matinee+evening
+        // pair stays consecutive. See date_rules.ts.
+        if (areDatesConsecutive(lastShowDateStr, show.date)) {
           if (currentSequence) {
             currentSequence.count++;
             currentSequence.endDate = formatDateForDisplay(show.date, show.time);
@@ -369,27 +411,29 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
           // End current sequence
           if (currentSequence && currentSequence.count >= 3) {
             const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
-            const severity = seq.count >= 6 ? "critical" : "ok";
-            sequences.push({ 
+            // 6 consecutive shows is LEGAL; only 7+ is a burnout violation.
+            const severity = seq.count > 6 ? "critical" : "ok";
+            sequences.push({
               startDate: seq.startDate,
               endDate: seq.endDate,
               count: seq.count,
               showIds: seq.showIds,
-              severity 
+              severity
             });
             maxConsecutive = Math.max(maxConsecutive, seq.count);
           }
           currentSequence = null;
         }
       }
-      
-      lastShowDate = showDate;
+
+      lastShowDateStr = show.date;
     });
     
     // Handle final sequence
     if (currentSequence && (currentSequence as any).count >= 3) {
       const seq = currentSequence as { startDate: string; endDate: string; count: number; showIds: string[] };
-      const severity = seq.count >= 6 ? "critical" : "ok";
+      // 6 consecutive shows is LEGAL; only 7+ is a burnout violation.
+      const severity = seq.count > 6 ? "critical" : "ok";
       sequences.push({ 
         startDate: seq.startDate,
         endDate: seq.endDate,
@@ -400,34 +444,37 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
       maxConsecutive = Math.max(maxConsecutive, seq.count);
     }
     
+    // sequences keep their showIds here; toPublicAnalysis strips them at the response.
     analysis.push({
       performer: member.name,
       maxConsecutive,
-      sequences: sequences.map(seq => ({
-        startDate: seq.startDate,
-        endDate: seq.endDate,
-        count: seq.count,
-        severity: seq.severity
-      }))
+      sequences
     });
   });
-  
+
   return analysis;
 }
 
-function getConsecutiveShowSuggestions(performer: string, sequence: any, assignments: Assignment[], activeShows: Show[], formatDateForDisplay: Function, getAlternativePerformers: Function): string {
+export function getConsecutiveShowSuggestions(performer: string, sequence: ConsecutiveSequenceInternal, assignments: Assignment[], activeShows: Show[], formatDateForDisplay: Function, getAlternativePerformers: Function): string {
   const suggestions: string[] = [];
-  
+
   // Find assignments for this performer in the sequence period
   const performerAssignments = assignments.filter(a => a.performer === performer);
-  const sequenceShows = activeShows.filter(show => {
-    const showDate = new Date(`${show.date}T${show.time}`);
-    const sequenceStart = new Date(sequence.startDate);
-    const sequenceEnd = new Date(sequence.endDate);
-    return showDate >= sequenceStart && showDate <= sequenceEnd;
-  });
-  
-  if (sequenceShows.length >= 3) {
+
+  // The run's own shows, in the order analyzeConsecutiveShows walked them.
+  //
+  // This used to rebuild the run by parsing sequence.startDate into a Date and filtering
+  // activeShows to that window. But startDate is a *display* string ("Mon Aug 4 7:30 PM"),
+  // which V8 happily parses as the year 2001 — not an Invalid Date, just a silently wrong
+  // one. The window therefore matched nothing on any real schedule and the suggestion
+  // below was unreachable. It also scanned every show in the window rather than this
+  // performer's, so even a corrected window could have picked a show they aren't in.
+  const showsById = new Map(activeShows.map(show => [show.id, show]));
+  const sequenceShows = sequence.showIds
+    .map(id => showsById.get(id))
+    .filter((show): show is Show => show !== undefined);
+
+  if (sequenceShows.length > 0) {
     // Suggest replacing in the middle of the sequence
     const middleIndex = Math.floor(sequenceShows.length / 2);
     const middleShow = sequenceShows[middleIndex];
@@ -462,11 +509,10 @@ function getOverworkedSuggestions(performer: string, assignments: Assignment[], 
       const show = activeShows.find(s => s.id === assignment.showId);
       return { assignment, show };
     }).filter(item => item.show)
-      .sort((a, b) => {
-        const dateA = new Date(`${a.show!.date}T${a.show!.time}`);
-        const dateB = new Date(`${b.show!.date}T${b.show!.time}`);
-        return dateB.getTime() - dateA.getTime(); // Most recent first
-      });
+      // Most recent first. showSortKey rather than a Date difference: a TBC show
+      // yields NaN, and a NaN comparator silently scrambles the whole order.
+      .sort((a, b) =>
+        showSortKey(b.show!.date, b.show!.time).localeCompare(showSortKey(a.show!.date, a.show!.time)));
     
     // Suggest redistributing 1-2 recent assignments
     for (let i = 0; i < Math.min(2, sortedAssignments.length); i++) {
@@ -599,9 +645,9 @@ function analyzeRoleCompleteness(assignments: Assignment[], activeShows: Show[])
       .filter(show => !assignedShowIds.has(show.id))
       .map(show => {
         try {
-          const date = new Date(show.date);
-          const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-          const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const date = new Date(show.date + "T12:00:00Z");
+          const dayName = date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+          const monthDay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
           return `${dayName} ${monthDay}`;
         } catch {
           return show.date;
@@ -704,7 +750,7 @@ function analyzeSpecialDayHandling(specialDays: Show[], assignments: Assignment[
   };
 }
 
-function generateSmartRecommendations(issues: ValidationIssue[], loadBalancing: LoadBalancingStats[], consecutiveAnalysis: ConsecutiveShowAnalysis[], roleCompleteness: any[], totalShows: number): string[] {
+function generateSmartRecommendations(issues: ValidationIssue[], loadBalancing: LoadBalancingStats[], consecutiveAnalysis: ConsecutiveShowAnalysisInternal[], roleCompleteness: any[], totalShows: number): string[] {
   const recommendations: string[] = [];
   
   // Priority 1: Critical issues

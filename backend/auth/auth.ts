@@ -1,26 +1,27 @@
 /**
  * Main authentication service for STOMP Performance Scheduler
- * 
+ *
  * Provides user registration, login, session management, and JWT token operations
  */
 
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "encore.dev/internal/codegen/auth";
+import type { AuthData } from "./encore_auth";
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { scheduleDB } from '../scheduler/db';
-import { 
-  User, 
-  UserProfile, 
-  AuthSession, 
-  JWTPayload, 
-  RegisterRequest, 
-  LoginRequest, 
+import {
+  User,
+  UserProfile,
+  AuthSession,
+  JWTPayload,
+  RegisterRequest,
+  LoginRequest,
   AuthResponse,
   AuthError,
   AuthErrorCode
 } from './types';
 import { authConfig } from './config';
-import { authenticateRequest, requireAuth } from './middleware';
 
 // Utility functions
 function generateId(): string {
@@ -94,12 +95,12 @@ export const register = api<RegisterRequest, RegisterResponse>(
     }
 
     const email = req.email.toLowerCase().trim();
-    
+
     // Check if user already exists
     const existingUser = await scheduleDB.queryRow`
       SELECT id FROM users WHERE email = ${email}
     `;
-    
+
     if (existingUser) {
       throw new AuthError({
         code: AuthErrorCode.UserAlreadyExists,
@@ -168,7 +169,7 @@ export const login = api<LoginRequest, LoginResponse>(
     // Find user by email
     const userRow = await scheduleDB.queryRow`
       SELECT id, email, password_hash, first_name, last_name, is_active
-      FROM users 
+      FROM users
       WHERE email = ${email}
     `;
 
@@ -234,32 +235,28 @@ export interface MeResponse {
 export const me = api<void, MeResponse>(
   { expose: true, method: "GET", path: "/auth/me", auth: true },
   async (): Promise<MeResponse> => {
-    // In Encore TypeScript, auth data is accessed via getAuthData() import
-    // Since this is a backend service, let's check if we can import from the runtime
-    try {
-      // Try to access auth context through Encore's runtime
-      // For now, we'll use a different approach since we can't import ~encore/auth in backend
-      
-      // The auth handler should have already validated and the data is available somewhere
-      // Let's return a response that shows the auth is working but we need to find the data
-      console.log('me endpoint - auth validated, need to access user data');
-      
-      return {
-        user: {
-          id: "auth-validated",
-          email: "user@authenticated.com"
-        },
-        session: {
-          userId: "auth-validated", 
-          sessionId: "session-validated",
-          issuedAt: new Date(),
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-          isActive: true
-        }
-      };
-    } catch (error) {
-      throw new Error(`Failed to get auth data: ${error}`);
+    const authData = await getAuthData<AuthData>();
+    if (!authData) {
+      throw APIError.unauthenticated("Not authenticated");
     }
+
+    const user = await getUserById(authData.userID);
+    if (!user) {
+      throw APIError.notFound("User not found");
+    }
+
+    const session = await validateSession(authData.sessionID);
+
+    return {
+      user: userToProfile(user),
+      session: session ?? {
+        userId: authData.userID,
+        sessionId: authData.sessionID,
+        issuedAt: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        isActive: true,
+      },
+    };
   }
 );
 
@@ -274,15 +271,13 @@ export interface LogoutResponse {
 export const logout = api<void, LogoutResponse>(
   { expose: true, method: "POST", path: "/auth/logout", auth: true },
   async (): Promise<LogoutResponse> => {
-    // For now, we'll implement basic logout without session invalidation
-    // since we need to figure out how to access auth data first
-    // TODO: Add proper session invalidation once auth data access is resolved
-    
-    console.log('logout endpoint - invalidating session');
-    
-    return {
-      success: true
-    };
+    const authData = await getAuthData<AuthData>();
+    if (authData) {
+      await scheduleDB.exec`
+        UPDATE user_sessions SET is_active = false WHERE session_id = ${authData.sessionID}
+      `;
+    }
+    return { success: true };
   }
 );
 
@@ -292,7 +287,7 @@ export const logout = api<void, LogoutResponse>(
 export async function getUserById(userId: string): Promise<User | null> {
   const userRow = await scheduleDB.queryRow`
     SELECT id, email, password_hash, first_name, last_name, is_active, created_at, updated_at
-    FROM users 
+    FROM users
     WHERE id = ${userId}
   `;
 
@@ -317,7 +312,7 @@ export async function getUserById(userId: string): Promise<User | null> {
 export async function validateSession(sessionId: string): Promise<AuthSession | null> {
   const sessionRow = await scheduleDB.queryRow`
     SELECT user_id, session_id, issued_at, expires_at, is_active
-    FROM user_sessions 
+    FROM user_sessions
     WHERE session_id = ${sessionId} AND is_active = true
   `;
 
@@ -331,8 +326,8 @@ export async function validateSession(sessionId: string): Promise<AuthSession | 
   if (expiresAt < now) {
     // Session expired, mark as inactive
     await scheduleDB.exec`
-      UPDATE user_sessions 
-      SET is_active = false 
+      UPDATE user_sessions
+      SET is_active = false
       WHERE session_id = ${sessionId}
     `;
     return null;
