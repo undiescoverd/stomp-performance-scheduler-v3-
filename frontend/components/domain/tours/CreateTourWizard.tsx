@@ -10,8 +10,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NumberStepper } from "@/components/ui/number-stepper";
 import { useCompany } from "@/hooks/useCompany";
 import { parseLocalDate, isoDate } from "@/components/domain/format";
+import { nextMondayFrom } from "@/components/domain/week";
 
 interface CreateTourWizardProps {
   open: boolean;
@@ -58,6 +60,13 @@ const TRAVEL_DAYS: { value: TravelDay; label: string }[] = [
   { value: "sunday", label: "Travel Sunday" },
 ];
 
+/** Today as a local YYYY-MM-DD. `isoDate` reads UTC getters, which would slip a
+ *  day either side of midnight for a genuinely local `new Date()`. */
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function weekNumberOf(iso: string): number {
   const d = parseLocalDate(iso);
   const start = new Date(d.getFullYear(), 0, 1);
@@ -78,23 +87,23 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
     if (!open) return;
     setTourName("");
     setSegmentName("");
-    setStartDate("");
+    setStartDate(nextMondayFrom(todayIso()));
     setWeekCount(4);
     setCities(["", "", "", ""]);
     setTravelDays(["none", "none", "none", "none"]);
   }, [open]);
 
+  // Clamping lives in NumberStepper, which only ever emits an in-range integer.
   const setCount = (n: number) => {
-    const clamped = Math.max(1, Math.min(12, n || 1));
-    setWeekCount(clamped);
+    setWeekCount(n);
     setCities((prev) => {
-      const next = prev.slice(0, clamped);
-      while (next.length < clamped) next.push("");
+      const next = prev.slice(0, n);
+      while (next.length < n) next.push("");
       return next;
     });
     setTravelDays((prev) => {
-      const next = prev.slice(0, clamped);
-      while (next.length < clamped) next.push("none");
+      const next = prev.slice(0, n);
+      while (next.length < n) next.push("none");
       return next;
     });
   };
@@ -126,7 +135,7 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent style={{ maxHeight: "88vh", overflowY: "auto" }}>
+      <DialogContent className="sm:max-w-3xl" style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <DialogHeader>
           <DialogTitle>Create tour segment</DialogTitle>
           <DialogDescription>
@@ -155,24 +164,23 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
             </div>
             <div className="stack" style={{ gap: 6 }}>
               <Label htmlFor="week-count">Weeks (1–12)</Label>
-              <Input
-                id="week-count"
-                type="number"
-                min={1}
-                max={12}
-                value={weekCount}
-                onChange={(e) => setCount(parseInt(e.target.value, 10))}
-              />
+              <NumberStepper id="week-count" value={weekCount} onChange={setCount} min={1} max={12} />
             </div>
           </div>
 
           <div className="stack" style={{ gap: 8 }}>
             <Label>Venue and travel day per week</Label>
+            {/* Fixed height, not max-height: the week list scrolls inside itself so
+                going 1 -> 12 weeks never shoves the footer down the screen. */}
+            <div
+              className="stack"
+              style={{ gap: 8, height: 244, overflowY: "auto", paddingRight: 4 }}
+            >
             {Array.from({ length: weekCount }).map((_, i) => {
               const travelDay = travelDays[i] ?? "none";
               const shows = 8 - SHOWS_LOST[travelDay];
               return (
-                <div key={i} className="row" style={{ gap: 10 }}>
+                <div key={i} className="row" style={{ gap: 10, minHeight: 36, flexShrink: 0 }}>
                   <span className="week-num" style={{ width: 44 }}>
                     W{startDate ? weekNumberOf(addDays(startDate, 7 * i)) : i + 1}
                   </span>
@@ -211,6 +219,7 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
 
