@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import { Show, Assignment } from "./types";
 import { SchedulingAlgorithm, ConstraintResult } from "./algorithm";
 import { areDatesConsecutive } from "./date_rules";
-import { TBC, isKnownTime, parseShowDateTime, showSortKey } from "./time";
+import { TBC, isKnownTime, showSortKey } from "./time";
 
 export interface ValidateComprehensiveRequest {
   shows: Show[];
@@ -37,6 +37,39 @@ export interface ConsecutiveShowAnalysis {
     count: number;
     severity: "ok" | "warning" | "critical";
   }>;
+}
+
+/**
+ * A run, plus the shows it spans. `showIds` stays internal: it is what lets
+ * `getConsecutiveShowSuggestions` name a real show without re-deriving the run from
+ * `startDate`/`endDate`, which are *display* strings and must never be parsed.
+ */
+interface ConsecutiveSequenceInternal {
+  startDate: string;
+  endDate: string;
+  count: number;
+  severity: "ok" | "warning" | "critical";
+  showIds: string[];
+}
+
+export interface ConsecutiveShowAnalysisInternal {
+  performer: string;
+  maxConsecutive: number;
+  sequences: ConsecutiveSequenceInternal[];
+}
+
+/**
+ * Drop `showIds` on the way to the API response, keeping the wire format unchanged.
+ *
+ * This has to be explicit. `ConsecutiveShowAnalysisInternal` is structurally assignable
+ * to `ConsecutiveShowAnalysis`, and excess-property checks don't fire on a non-literal,
+ * so omitting this call would compile clean and silently widen the public API.
+ */
+export function toPublicAnalysis(analysis: ConsecutiveShowAnalysisInternal[]): ConsecutiveShowAnalysis[] {
+  return analysis.map(a => ({
+    ...a,
+    sequences: a.sequences.map(({ showIds, ...rest }) => rest),
+  }));
 }
 
 export interface ValidateComprehensiveResponse {
@@ -257,7 +290,7 @@ export const validateComprehensive = api<ValidateComprehensiveRequest, ValidateC
       },
       issues,
       loadBalancing,
-      consecutiveAnalysis,
+      consecutiveAnalysis: toPublicAnalysis(consecutiveAnalysis),
       roleCompleteness,
       specialDayHandling,
       recommendations
@@ -312,8 +345,8 @@ function validateRoleEligibilityWithSuggestions(assignments: Assignment[], castM
   return issues;
 }
 
-function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[], castMembers: any[], formatDateForDisplay: Function, getAlternativePerformers: Function): ConsecutiveShowAnalysis[] {
-  const analysis: ConsecutiveShowAnalysis[] = [];
+export function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[], castMembers: any[], formatDateForDisplay: Function, getAlternativePerformers: Function): ConsecutiveShowAnalysisInternal[] {
+  const analysis: ConsecutiveShowAnalysisInternal[] = [];
   
   castMembers.forEach(member => {
     const memberShows = new Set<string>();
@@ -407,38 +440,37 @@ function analyzeConsecutiveShows(assignments: Assignment[], activeShows: Show[],
       maxConsecutive = Math.max(maxConsecutive, seq.count);
     }
     
+    // sequences keep their showIds here; toPublicAnalysis strips them at the response.
     analysis.push({
       performer: member.name,
       maxConsecutive,
-      sequences: sequences.map(seq => ({
-        startDate: seq.startDate,
-        endDate: seq.endDate,
-        count: seq.count,
-        severity: seq.severity
-      }))
+      sequences
     });
   });
-  
+
   return analysis;
 }
 
-function getConsecutiveShowSuggestions(performer: string, sequence: any, assignments: Assignment[], activeShows: Show[], formatDateForDisplay: Function, getAlternativePerformers: Function): string {
+export function getConsecutiveShowSuggestions(performer: string, sequence: ConsecutiveSequenceInternal, assignments: Assignment[], activeShows: Show[], formatDateForDisplay: Function, getAlternativePerformers: Function): string {
   const suggestions: string[] = [];
-  
+
   // Find assignments for this performer in the sequence period
   const performerAssignments = assignments.filter(a => a.performer === performer);
-  const sequenceShows = activeShows.filter(show => {
-    // A show with no known time cannot be proven to fall inside the window, so it
-    // is excluded rather than compared. An Invalid Date compares false against
-    // everything, which would drop it silently and identically — but by accident.
-    const showDate = parseShowDateTime(show.date, show.time);
-    if (!showDate) return false;
-    const sequenceStart = new Date(sequence.startDate);
-    const sequenceEnd = new Date(sequence.endDate);
-    return showDate >= sequenceStart && showDate <= sequenceEnd;
-  });
-  
-  if (sequenceShows.length >= 3) {
+
+  // The run's own shows, in the order analyzeConsecutiveShows walked them.
+  //
+  // This used to rebuild the run by parsing sequence.startDate into a Date and filtering
+  // activeShows to that window. But startDate is a *display* string ("Mon Aug 4 7:30 PM"),
+  // which V8 happily parses as the year 2001 — not an Invalid Date, just a silently wrong
+  // one. The window therefore matched nothing on any real schedule and the suggestion
+  // below was unreachable. It also scanned every show in the window rather than this
+  // performer's, so even a corrected window could have picked a show they aren't in.
+  const showsById = new Map(activeShows.map(show => [show.id, show]));
+  const sequenceShows = sequence.showIds
+    .map(id => showsById.get(id))
+    .filter((show): show is Show => show !== undefined);
+
+  if (sequenceShows.length > 0) {
     // Suggest replacing in the middle of the sequence
     const middleIndex = Math.floor(sequenceShows.length / 2);
     const middleShow = sequenceShows[middleIndex];
@@ -714,7 +746,7 @@ function analyzeSpecialDayHandling(specialDays: Show[], assignments: Assignment[
   };
 }
 
-function generateSmartRecommendations(issues: ValidationIssue[], loadBalancing: LoadBalancingStats[], consecutiveAnalysis: ConsecutiveShowAnalysis[], roleCompleteness: any[], totalShows: number): string[] {
+function generateSmartRecommendations(issues: ValidationIssue[], loadBalancing: LoadBalancingStats[], consecutiveAnalysis: ConsecutiveShowAnalysisInternal[], roleCompleteness: any[], totalShows: number): string[] {
   const recommendations: string[] = [];
   
   // Priority 1: Critical issues
