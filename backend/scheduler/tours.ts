@@ -66,8 +66,8 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
 
       // Create tour record with new structure
       await scheduleDB.exec`
-        INSERT INTO tours (id, name, segment_name, parent_tour_name, start_date, end_date, cast_member_ids, created_at, updated_at)
-        VALUES (${tourId}, ${req.tourName}, ${req.segmentName}, ${parentTourName}, ${startDate}, ${endDate}, ${JSON.stringify(req.castMemberIds)}, ${now}, ${now})
+        INSERT INTO tours (id, name, segment_name, parent_tour_name, start_date, end_date, cast_member_ids, user_id, created_at, updated_at)
+        VALUES (${tourId}, ${req.tourName}, ${req.segmentName}, ${parentTourName}, ${startDate}, ${endDate}, ${JSON.stringify(req.castMemberIds)}, ${userId}, ${now}, ${now})
       `;
 
       console.log(`Tour ${tourId} created successfully with parent: ${parentTourName}`);
@@ -200,10 +200,12 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
     }
 
     console.log("getTours called with params:", req);
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
     try {
-      // Simple query to get all tours
+      // Only the caller's own tours (mirrors the user scoping on list.ts/get.ts)
       const rows = await scheduleDB.query`
-        SELECT 
+        SELECT
           id,
           name,
           segment_name,
@@ -214,6 +216,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
           created_at,
           updated_at
         FROM tours
+        WHERE user_id = ${userId}
         ORDER BY created_at DESC
       `;
 
@@ -252,7 +255,7 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
         const weekRows = await scheduleDB.query`
           SELECT id, location_city, week, shows_data
           FROM schedules
-          WHERE tour_id = ${row.id}
+          WHERE tour_id = ${row.id} AND user_id = ${userId}
           ORDER BY week
         `;
 
@@ -359,10 +362,13 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
       };
     }
 
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
     try {
       // Count schedules that will be deleted
       const countResult = await scheduleDB.query`
-        SELECT COUNT(*) as count FROM schedules WHERE tour_id = ${req.id}
+        SELECT COUNT(*) as count FROM schedules WHERE tour_id = ${req.id} AND user_id = ${userId}
       `;
 
       // Convert AsyncGenerator to array
@@ -376,9 +382,10 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
       }
       const deletedWeeks = countArray[0]?.count || 0;
 
-      // Delete tour (cascades to schedules due to foreign key)
+      // Delete tour (cascades to schedules due to foreign key), only if the
+      // caller owns it — mirrors the user scoping on delete.ts.
       const result = await scheduleDB.exec`
-        DELETE FROM tours WHERE id = ${req.id}
+        DELETE FROM tours WHERE id = ${req.id} AND user_id = ${userId}
       `;
 
       return {
@@ -404,10 +411,13 @@ export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTour
       };
     }
 
+    const authData = await getAuthData<AuthData>();
+    const userId = authData?.userID ?? 'system';
+
     try {
       await scheduleDB.exec`
-        DELETE FROM schedules 
-        WHERE id = ${req.weekId} AND tour_id = ${req.tourId}
+        DELETE FROM schedules
+        WHERE id = ${req.weekId} AND tour_id = ${req.tourId} AND user_id = ${userId}
       `;
 
       return { success: true };
