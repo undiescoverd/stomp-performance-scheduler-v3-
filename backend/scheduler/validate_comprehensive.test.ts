@@ -95,6 +95,41 @@ describe('analyzeConsecutiveShows', () => {
   });
 });
 
+// A performer marked OFF is not performing. Counting an OFF show toward a burnout run
+// inflates `count`, and `count > 6` is the only gate that marks a run critical — so an
+// OFF show could manufacture a false critical. algorithm.ts:1748 and the frontend's
+// analyzeFatigue (logic.ts:82) both exclude OFF; this module used not to.
+describe('analyzeConsecutiveShows and OFF days', () => {
+  // ALICE plays 6 of the 7 dates and sits out the middle one.
+  const offAssignments: Assignment[] = [
+    ...aliceShows.filter(s => s.id !== "d3").map(s => cast(s.id, "ALICE", "Sarge")),
+    cast("d3", "ALICE", "OFF"),
+    cast("decoy", "BOB", "Potato"),
+  ];
+
+  it('breaks the run in two — an OFF day is a day performing zero shows', () => {
+    const alice = analyseAlice(activeShows, offAssignments);
+    // Aug 4-6, then nothing on Aug 7, then Aug 8-10. Per date_rules, a day with no
+    // performance resets the run; it does not merely go uncounted. Previously the run
+    // was chained straight through the day off, giving maxConsecutive 7.
+    expect(alice.maxConsecutive).toBe(3);
+    expect(alice.sequences.map(s => s.count)).toEqual([3, 3]);
+  });
+
+  it('does not manufacture a critical run out of an OFF day', () => {
+    const alice = analyseAlice(activeShows, offAssignments);
+    // 6 consecutive shows is legal; only 7+ is a burnout violation.
+    expect(alice.sequences.every(s => s.severity !== "critical")).toBe(true);
+  });
+
+  it('never suggests replacing a performer in a role they are OFF for', () => {
+    const alice = analyseAlice(activeShows, offAssignments);
+    const seq = alice.sequences[0] as any;
+    expect(seq.showIds).not.toContain("d3");
+    expect(suggestFor(seq, offAssignments)).not.toContain("for OFF");
+  });
+});
+
 describe('toPublicAnalysis', () => {
   // TypeScript cannot catch a missing strip here: the internal type is structurally
   // assignable to the public one. Only this test stands between showIds and the wire.

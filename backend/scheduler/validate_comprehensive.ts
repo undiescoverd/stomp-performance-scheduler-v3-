@@ -351,7 +351,11 @@ export function analyzeConsecutiveShows(assignments: Assignment[], activeShows: 
   castMembers.forEach(member => {
     const memberShows = new Set<string>();
     assignments.forEach(assignment => {
-      if (assignment.performer === member.name) {
+      // An OFF show is not a performance. Counting one toward a burnout run inflates
+      // `count`, and `count > 6` is the only gate that marks a run critical — so an OFF
+      // day could manufacture a false burnout violation. algorithm.ts:1748 and the
+      // frontend's analyzeFatigue both exclude OFF; this is the rule, not an optimisation.
+      if (assignment.performer === member.name && assignment.role !== "OFF") {
         memberShows.add(assignment.showId);
       }
     });
