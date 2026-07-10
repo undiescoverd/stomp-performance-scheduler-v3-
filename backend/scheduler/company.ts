@@ -39,6 +39,7 @@ export interface UpdateMemberRequest {
   id: string;
   name?: string;
   eligibleRoles?: Role[];
+  gender?: "male" | "female";
   status?: "active" | "archived";
   order?: number;
 }
@@ -142,6 +143,7 @@ export const updateMember = api<UpdateMemberRequest, UpdateMemberResponse>(
     // Update fields
     if (req.name !== undefined) member.name = req.name.toUpperCase();
     if (req.eligibleRoles !== undefined) member.eligibleRoles = req.eligibleRoles;
+    if (req.gender !== undefined) member.gender = req.gender;
     if (req.order !== undefined) member.order = req.order;
     
     // Handle status changes

@@ -46,7 +46,7 @@ export function useCompany() {
 
   const updateMember = useMutation({
     mutationFn: (input: MemberInput & { id: string }) =>
-      backend.scheduler.updateMember({ id: input.id, name: input.name, eligibleRoles: input.eligibleRoles }),
+      backend.scheduler.updateMember({ id: input.id, name: input.name, eligibleRoles: input.eligibleRoles, gender: input.gender }),
     onSuccess: () => {
       invalidate();
       toast({ title: "Cast member updated" });

@@ -373,6 +373,7 @@ export namespace scheduler {
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
             const body: Record<string, any> = {
                 eligibleRoles: params.eligibleRoles,
+                gender:        params.gender,
                 name:          params.name,
                 order:         params.order,
                 status:        params.status,
