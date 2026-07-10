@@ -91,14 +91,20 @@ export function ViolationBanner({ result, isValidating, fatigueIssues, roster, o
               <div className="v-msg">{w}</div>
             </div>
           ))}
-          {errors.length + warnings.length > 2 * MAX_ROWS ? (
-            <div className="violation-row">
-              <div className="v-msg text-muted">
-                + {errors.length + warnings.length - 2 * MAX_ROWS} more issue(s). Fill open roles and resolve conflicts
-                to clear them.
+          {/* Each list truncates at MAX_ROWS independently, so the hidden
+              count is the sum of each list's own overflow — gating on the
+              combined total would silently hide up to MAX_ROWS per list. */}
+          {(() => {
+            const hidden =
+              Math.max(0, errors.length - MAX_ROWS) + Math.max(0, warnings.length - MAX_ROWS);
+            return hidden > 0 ? (
+              <div className="violation-row">
+                <div className="v-msg text-muted">
+                  + {hidden} more issue(s). Fill open roles and resolve conflicts to clear them.
+                </div>
               </div>
-            </div>
-          ) : null}
+            ) : null;
+          })()}
 
           {fatiguePerformers.map(([performer, info]) => (
             <div key={performer} className="violation-row fatigue">

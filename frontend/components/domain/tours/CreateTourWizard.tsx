@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { NumberStepper } from "@/components/ui/number-stepper";
 import { useCompany } from "@/hooks/useCompany";
 import { parseLocalDate, isoDate } from "@/components/domain/format";
-import { nextMondayFrom } from "@/components/domain/week";
+import { mondayOf, nextMondayFrom } from "@/components/domain/week";
 
 interface CreateTourWizardProps {
   open: boolean;
@@ -160,7 +160,16 @@ export function CreateTourWizard({ open, onOpenChange, onCreate, isSubmitting }:
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="stack" style={{ gap: 6 }}>
               <Label htmlFor="start-date">Week 1 start (Mon)</Label>
-              <Input id="start-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              {/* Snap to the Monday of the picked week: the backend lays the
+                  standard Mon–Sat show template as fixed offsets from this
+                  date, so a mid-week start would put every show (and the
+                  travel-day removal) on the wrong day of the week. */}
+              <Input
+                id="start-date"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value ? mondayOf(e.target.value) : "")}
+              />
             </div>
             <div className="stack" style={{ gap: 6 }}>
               <Label htmlFor="week-count">Weeks (1–12)</Label>
