@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Show, Assignment, CastMember, Role } from "~backend/scheduler/types";
+import type { shortDate } from "@/components/domain/format";
 
 const autoTableCalls: any[] = [];
 
@@ -72,5 +73,46 @@ describe("SchedulePDFExporter main grid head", () => {
   it("labels a travel column in the Show row and leaves its Call empty", () => {
     expect(head()[1][4]).toBe("TRAVEL");
     expect(head()[2][4]).toBe("");
+  });
+});
+
+describe("SchedulePDFExporter date column heads", () => {
+  const headFor = (dateStyle?: Parameters<typeof shortDate>[1]) => {
+    autoTableCalls.length = 0;
+    new SchedulePDFExporter({
+      location: "London",
+      week: "32",
+      shows,
+      assignments,
+      castMembers,
+      roles,
+      dateStyle,
+    }).generate();
+    return autoTableCalls[0].head[0] as string[];
+  };
+
+  it("defaults to dmy, matching the on-screen grid rather than a hardcoded US format", () => {
+    expect(headFor()[1]).toBe("Tue 05/08/2025");
+  });
+
+  it("honours the chosen date style", () => {
+    expect(headFor("iso")[1]).toBe("Tue 2025-08-05");
+    expect(headFor("mdy")[1]).toBe("Tue 08/05/2025");
+    expect(headFor("short")[1]).toBe("Tue 5 Aug");
+  });
+
+  it("reads a client-revived UTC-midnight Date as its calendar day, not the day before", () => {
+    autoTableCalls.length = 0;
+    const revived = [{ ...shows[0], date: new Date("2025-08-05T00:00:00.000Z") as unknown as string }];
+    new SchedulePDFExporter({
+      location: "London",
+      week: "32",
+      shows: revived,
+      assignments,
+      castMembers,
+      roles,
+      dateStyle: "iso",
+    }).generate();
+    expect((autoTableCalls[0].head[0] as string[])[1]).toBe("Tue 2025-08-05");
   });
 });

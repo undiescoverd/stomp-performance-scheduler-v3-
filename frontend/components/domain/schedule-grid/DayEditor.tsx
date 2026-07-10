@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { Show } from "~backend/scheduler/types";
 import { TBC, isKnownTime } from "~backend/scheduler/time";
 import { dowShort, isoDate, shortDate } from "../format";
+import { useSettings } from "@/providers/SettingsProvider";
 
 interface DayEditorProps {
   date: string;
@@ -119,6 +120,7 @@ export function DayEditor({
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [rejected, setRejected] = useState(false);
+  const { dateStyle } = useSettings();
 
   useLayoutEffect(() => {
     if (!anchor) return;
@@ -140,7 +142,7 @@ export function DayEditor({
 
   if (!pos) return null;
 
-  const dayLabel = `${dowShort(date)} ${shortDate(date)}`;
+  const dayLabel = `${dowShort(date)} ${shortDate(date, dateStyle)}`;
 
   const changeTime = (field: "time" | "callTime", value: string) => {
     if (!show) return;

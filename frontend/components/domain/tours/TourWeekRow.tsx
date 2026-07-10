@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Trash2, ChevronRight } from "lucide-react";
 import { weekStatus, type TourWeekView } from "@/hooks/useTours";
 import { shortDate, isoDate } from "../format";
+import { useSettings } from "@/providers/SettingsProvider";
 
 interface TourWeekRowProps {
   week: TourWeekView;
@@ -12,6 +13,7 @@ interface TourWeekRowProps {
  *  The delete control is a sibling of the link so it never triggers navigation. */
 export function TourWeekRow({ week, onDelete }: TourWeekRowProps) {
   const status = weekStatus(week);
+  const { dateStyle } = useSettings();
   // getTours doesn't persist a per-week start date, so only show one if real.
   const iso = isoDate(week.startDate);
   const hasDate = /^\d{4}-/.test(iso) && iso.slice(0, 4) >= "2000";
@@ -23,7 +25,7 @@ export function TourWeekRow({ week, onDelete }: TourWeekRowProps) {
           <div className="week-loc">{week.locationCity}</div>
           <div className="week-date">
             {week.showCount} show{week.showCount === 1 ? "" : "s"}
-            {hasDate ? ` · ${shortDate(week.startDate)}` : ""}
+            {hasDate ? ` · ${shortDate(week.startDate, dateStyle)}` : ""}
           </div>
         </div>
         <span className={`tour-status st-${status}`}>{status}</span>

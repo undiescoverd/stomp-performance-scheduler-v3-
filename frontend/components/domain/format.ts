@@ -40,10 +40,31 @@ export function dayNumber(d: string | Date): number {
   return parseLocalDate(d).getDate();
 }
 
-/** "22 Jul" — day + short month. */
-export function shortDate(d: string | Date): string {
+/**
+ * How full dates render across the app. Chosen in Settings and threaded down
+ * from `useSettings()` — deliberately a parameter rather than a module global,
+ * so a change re-renders the components that display it.
+ */
+export type DateStyle = "dmy" | "mdy" | "iso" | "short";
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** "22/07/2026" · "07/22/2026" · "2026-07-22" · "22 Jul". */
+export function shortDate(d: string | Date, style: DateStyle = "dmy"): string {
   const dt = parseLocalDate(d);
-  return `${dt.getDate()} ${MON[dt.getMonth()]}`;
+  const day = pad(dt.getDate());
+  const month = pad(dt.getMonth() + 1);
+  const year = dt.getFullYear();
+  switch (style) {
+    case "mdy":
+      return `${month}/${day}/${year}`;
+    case "iso":
+      return `${year}-${month}-${day}`;
+    case "short":
+      return `${dt.getDate()} ${MON[dt.getMonth()]}`;
+    default:
+      return `${day}/${month}/${year}`;
+  }
 }
 
 /** "Week 32" from a raw week value; passes values that already contain the word
@@ -73,13 +94,22 @@ export function fmtTime(t: string): string {
   return `${h12}:${m || "00"} ${ap}`;
 }
 
-/** "Aug 5 – 10" or "Jul 29 – Aug 3" from a show list. */
-export function dateRange(shows: Show[]): string {
+/**
+ * The span a show list covers.
+ *
+ * Under `short` this elides into word forms — "Aug 5 – 10", "Jul 29 – Aug 3".
+ * Under a numeric style both endpoints render in full: a part-elided numeric
+ * range ("5 – 10/08/2026") reads ambiguously, so no elision is attempted.
+ */
+export function dateRange(shows: Show[], style: DateStyle = "dmy"): string {
   const dates = shows
     .map((s) => isoDate(s.date))
     .filter(Boolean)
     .sort();
   if (!dates.length) return "No dates";
+  if (style !== "short") {
+    return `${shortDate(dates[0], style)} – ${shortDate(dates[dates.length - 1], style)}`;
+  }
   const a = parseLocalDate(dates[0]);
   const b = parseLocalDate(dates[dates.length - 1]);
   const left = `${MON[a.getMonth()]} ${a.getDate()}`;

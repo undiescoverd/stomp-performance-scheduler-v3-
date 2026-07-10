@@ -1,6 +1,8 @@
-import { Menu } from "lucide-react";
+import { useState } from "react";
+import { Menu, Settings } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { Crumbs, crumbsForPath, type Crumb } from "./Crumbs";
+import { SettingsDialog } from "./SettingsDialog";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface TopbarProps {
@@ -14,6 +16,7 @@ interface TopbarProps {
 export function Topbar({ onMenuClick, crumbs, actions }: TopbarProps) {
   const { pathname } = useLocation();
   const trail = crumbs ?? crumbsForPath(pathname);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <header className="topbar">
@@ -24,8 +27,18 @@ export function Topbar({ onMenuClick, crumbs, actions }: TopbarProps) {
       <div className="topbar-spacer" />
       <div className="topbar-actions">
         {actions}
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <Settings />
+        </button>
         <ThemeToggle />
       </div>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </header>
   );
 }

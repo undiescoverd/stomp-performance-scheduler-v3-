@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { Show, Assignment, Role, CastMember } from '~backend/scheduler/types';
+import { dowShort, shortDate, type DateStyle } from '@/components/domain/format';
 
 interface PDFExportOptions {
   location: string;
@@ -10,6 +11,8 @@ interface PDFExportOptions {
   assignments: Assignment[];
   castMembers: CastMember[];
   roles: Role[];
+  /** Chosen in Settings; a plain class, so it is passed in rather than hooked. */
+  dateStyle?: DateStyle;
 }
 
 export class SchedulePDFExporter {
@@ -63,12 +66,10 @@ export class SchedulePDFExporter {
     
     // Create structured table data matching the exact format from the image
     const tableHead = [
-      ['Role', ...shows.map(show => {
-        const date = new Date(show.date);
-        const dayName = format(date, 'EEE');
-        const monthDay = format(date, 'M/d');
-        return `${dayName} ${monthDay}`;
-      })],
+      // Formatted through format.ts, so the printed header matches the on-screen
+      // grid and honours the chosen date style. `new Date(show.date)` would also
+      // misread a client-revived UTC-midnight Date by a day.
+      ['Role', ...shows.map(show => `${dowShort(show.date)} ${shortDate(show.date, this.options.dateStyle)}`)],
       // Show and Call are two labelled rows of equal weight, as on the printed
       // call sheet. Stacked in one cell the call time read as a footnote to the
       // curtain time, and a TBC in it was easy to miss.
@@ -331,8 +332,12 @@ export class SchedulePDFExporter {
   }
 
   download(filename?: string): void {
-    const { location, week } = this.options;
-    const defaultName = `STOMP_Schedule_${location.replace(/\s+/g, '_')}_Week${week}_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+    const { location, week, dateStyle } = this.options;
+    // date-fns yields today's *local* calendar date; shortDate then styles it.
+    // Slashes and spaces are not filename-safe, so they collapse to a dash --
+    // under the iso style this reproduces the original yyyy-MM-dd stamp exactly.
+    const stamp = shortDate(format(new Date(), 'yyyy-MM-dd'), dateStyle).replace(/[/\s]+/g, '-');
+    const defaultName = `STOMP_Schedule_${location.replace(/\s+/g, '_')}_Week${week}_${stamp}.pdf`;
     this.doc.save(filename || defaultName);
   }
 }
