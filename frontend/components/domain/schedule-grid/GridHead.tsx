@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Show, DayStatus } from "~backend/scheduler/types";
 import { isKnownTime } from "~backend/scheduler/time";
 import { shortDate, dowShort, fmtTime, isoDate } from "../format";
+import { useSettings } from "@/providers/SettingsProvider";
 import { citySegments, resolveCities, type Column } from "../week";
 import { DayEditor } from "./DayEditor";
 
@@ -38,6 +39,7 @@ export function GridHead({
 }: GridHeadProps) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const anchors = useRef(new Map<string, HTMLElement>());
+  const { dateStyle } = useSettings();
 
   // The editor is positioned from a viewport rect, so a scroll or resize would
   // leave it stranded beside its column.
@@ -90,7 +92,7 @@ export function GridHead({
         <th className="row-label">Date</th>
         {columns.map((column) => {
           const key = columnKey(column);
-          const label = `${dowShort(column.date)} ${shortDate(column.date)}`;
+          const label = `${dowShort(column.date)} ${shortDate(column.date, dateStyle)}`;
           return (
             <th
               key={key}
@@ -107,7 +109,7 @@ export function GridHead({
                 onClick={() => setOpenKey((cur) => (cur === key ? null : key))}
               >
                 <div className="show-day">{dowShort(column.date)}</div>
-                <div className="show-date">{shortDate(column.date)}</div>
+                <div className="show-date">{shortDate(column.date, dateStyle)}</div>
               </button>
             </th>
           );
@@ -133,7 +135,7 @@ export function GridHead({
               <select
                 className={`status-select is-${show.status}`}
                 value={show.status}
-                aria-label={`Status for ${dowShort(show.date)} ${shortDate(show.date)}`}
+                aria-label={`Status for ${dowShort(show.date)} ${shortDate(show.date, dateStyle)}`}
                 onChange={(e) => choose(show, e.target.value as StatusChoice)}
               >
                 <option value="show">Show</option>

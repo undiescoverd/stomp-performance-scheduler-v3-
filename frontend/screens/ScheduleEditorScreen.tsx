@@ -11,12 +11,14 @@ import { analyzeFatigue, gridAnalytics, rosterShowCounts } from "@/components/do
 import { dateRange, weekLabel } from "@/components/domain/format";
 import { SchedulePDFExporter } from "@/utils/pdfExport";
 import { useToast } from "@/components/ui/use-toast";
+import { useSettings } from "@/providers/SettingsProvider";
 
 export function ScheduleEditorScreen() {
   const { id } = useParams();
   const editor = useScheduleEditor(id);
   const validation = useScheduleValidation();
   const { toast } = useToast();
+  const { dateStyle } = useSettings();
 
   const castMembers = editor.castData?.castMembers ?? [];
   const roles = editor.castData?.roles ?? [];
@@ -60,6 +62,7 @@ export function ScheduleEditorScreen() {
       assignments: editor.assignments,
       castMembers,
       roles,
+      dateStyle,
     });
     exporter.generate();
     exporter.download();
@@ -86,7 +89,7 @@ export function ScheduleEditorScreen() {
             aria-label="Schedule location"
           />
           <p className="text-muted mt-8" style={{ fontSize: 14 }}>
-            {dateRange(editor.shows)} · {showCount} show{showCount === 1 ? "" : "s"}
+            {dateRange(editor.shows, dateStyle)} · {showCount} show{showCount === 1 ? "" : "s"}
           </p>
         </div>
         <div className="toolbar">

@@ -5,6 +5,8 @@ import {
   citySegments,
   columnsForWeek,
   getDefaultShowTimes,
+  mondayOf,
+  nextMondayFrom,
   nextShow,
   resetShowTimes,
   restoreDate,
@@ -444,5 +446,30 @@ describe("setDestination", () => {
   it("ignores a show id that is not a travel day", () => {
     const week = splitWeek();
     expect(setDestination(week, week[1].id, "Nowhere")).toBe(week);
+  });
+});
+
+describe("nextMondayFrom", () => {
+  it("returns a Monday unchanged, so an already-valid start date is not pushed a week out", () => {
+    expect(nextMondayFrom("2026-07-06")).toBe("2026-07-06");
+  });
+
+  it("advances a Friday to the following Monday", () => {
+    expect(nextMondayFrom("2026-07-10")).toBe("2026-07-13");
+  });
+
+  it("advances a Sunday by a single day, not by a week", () => {
+    expect(nextMondayFrom("2026-07-12")).toBe("2026-07-13");
+  });
+
+  it("crosses a year boundary", () => {
+    expect(nextMondayFrom("2026-12-31")).toBe("2027-01-04");
+  });
+
+  it("agrees with mondayOf on a Monday, and never precedes its input", () => {
+    for (const d of ["2026-07-06", "2026-07-07", "2026-07-11", "2026-07-12"]) {
+      expect(nextMondayFrom(d) >= d).toBe(true);
+    }
+    expect(nextMondayFrom("2026-07-06")).toBe(mondayOf("2026-07-06"));
   });
 });

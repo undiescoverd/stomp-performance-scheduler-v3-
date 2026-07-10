@@ -15,10 +15,12 @@ import { SchedulePill } from "@/components/domain/SchedulePill";
 import { WeekStrip } from "@/components/domain/WeekStrip";
 import { splitLocation, dateRange, weekLabel } from "@/components/domain/format";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
+import { useSettings } from "@/providers/SettingsProvider";
 import { FEATURE_FLAGS } from "@/config/features";
 
 export function DashboardScreen() {
   const { schedules, spotlight, stats, isLoading, error, refetch } = useDashboardStats();
+  const { dateStyle } = useSettings();
 
   return (
     <>
@@ -91,7 +93,7 @@ export function DashboardScreen() {
                 <div className="h3">{splitLocation(spotlight.location)[1] || spotlight.location}</div>
                 <p className="text-muted mt-8" style={{ fontSize: 13 }}>
                   {spotlight.shows.filter((s) => s.status === "show").length} shows ·{" "}
-                  {dateRange(spotlight.shows)}
+                  {dateRange(spotlight.shows, dateStyle)}
                 </p>
               </div>
               <div className="legend-row">

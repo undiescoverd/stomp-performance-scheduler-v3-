@@ -117,6 +117,13 @@ export function mondayOf(date: string): string {
   return addDaysIso(isoDate(date), -(dow === 0 ? 6 : dow - 1));
 }
 
+/** The Monday on or after a date; a Monday returns itself. */
+export function nextMondayFrom(date: string): string {
+  const d = new Date(`${isoDate(date)}T00:00:00Z`);
+  const dow = d.getUTCDay(); // Sunday = 0
+  return addDaysIso(isoDate(date), (8 - dow) % 7);
+}
+
 /**
  * The week's Monday, taken from the *earliest* show.
  *

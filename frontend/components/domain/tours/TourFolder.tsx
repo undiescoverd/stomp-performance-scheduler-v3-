@@ -6,6 +6,7 @@ import { RouteTimeline } from "./RouteTimeline";
 import { TourSummaryBar } from "./TourSummaryBar";
 import { TourWeekRow } from "./TourWeekRow";
 import { shortDate } from "../format";
+import { useSettings } from "@/providers/SettingsProvider";
 
 interface TourFolderProps {
   tour: TourWithWeeks;
@@ -16,6 +17,7 @@ interface TourFolderProps {
 
 export function TourFolder({ tour, defaultOpen, onDeleteTour, onDeleteWeek }: TourFolderProps) {
   const [open, setOpen] = useState(!!defaultOpen);
+  const { dateStyle } = useSettings();
   const weeks = tour.weeks;
   const ready = weeks.filter((w) => weekStatus(w) === "ready").length;
   const pct = weeks.length ? Math.round((ready / weeks.length) * 100) : 0;
@@ -38,7 +40,8 @@ export function TourFolder({ tour, defaultOpen, onDeleteTour, onDeleteWeek }: To
             {tour.segmentName ? ` — ${tour.segmentName}` : ""}
           </div>
           <div className="tour-sub">
-            {weeks.length} week{weeks.length === 1 ? "" : "s"} · {shortDate(tour.startDate)} to {shortDate(tour.endDate)}
+            {weeks.length} week{weeks.length === 1 ? "" : "s"} · {shortDate(tour.startDate, dateStyle)} to{" "}
+            {shortDate(tour.endDate, dateStyle)}
           </div>
           <div className="tour-progress">
             <div className={`tour-progress-fill${pct >= 80 ? "" : " warn"}`} style={{ width: `${pct}%` }} />

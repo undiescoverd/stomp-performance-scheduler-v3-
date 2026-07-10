@@ -3,8 +3,10 @@ import { MapPin, CalendarDays, Clock } from "lucide-react";
 import type { Schedule } from "~backend/scheduler/types";
 import { SchedulePill } from "./SchedulePill";
 import { splitLocation, dateRange, relTime, weekLabel } from "./format";
+import { useSettings } from "@/providers/SettingsProvider";
 
 export function ScheduleCard({ schedule }: { schedule: Schedule }) {
+  const { dateStyle } = useSettings();
   const [city, venue] = splitLocation(schedule.location);
   const showCount = schedule.shows.filter((s) => s.status === "show").length;
   const travel = schedule.shows.filter((s) => s.status === "travel").length;
@@ -28,7 +30,7 @@ export function ScheduleCard({ schedule }: { schedule: Schedule }) {
         </div>
         <div className="sched-meta-row">
           <CalendarDays />
-          <span>{dateRange(schedule.shows)}</span>
+          <span>{dateRange(schedule.shows, dateStyle)}</span>
         </div>
         <div className="sched-meta-row">
           <Clock />
