@@ -1,10 +1,19 @@
 /**
  * Authentication configuration for STOMP Performance Scheduler
- * 
+ *
  * Handles configuration loading, environment variables, and auth settings
  */
 
+import { secret } from "encore.dev/config";
 import { AuthConfig } from "./types";
+
+// JWT signing secret, managed by Encore (encrypted, per-environment). Set with
+// `encore secret set --type local JWTSecret` for local dev and
+// `encore secret set --type prod JWTSecret` for production — see
+// .secrets.local.cue for the no-CLI local override. There is deliberately no
+// hardcoded fallback: a missing secret must fail closed, not sign tokens with
+// a value anyone with repo access could read.
+const jwtSecretValue = secret("JWTSecret");
 
 // Default configuration values
 const DEFAULT_CONFIG: Partial<AuthConfig> = {
@@ -16,24 +25,13 @@ const DEFAULT_CONFIG: Partial<AuthConfig> = {
  * Falls back to defaults for development
  */
 export function loadAuthConfig(): AuthConfig {
-  // JWT Secret - required for token signing
-  const jwtSecret = process.env.JWT_SECRET || process.env.ENCORE_JWT_SECRET;
-  if (!jwtSecret) {
-    // For development, use a default secret
-    console.warn('⚠️  JWT_SECRET not set, using default for development');
-    return {
-      jwtSecret: 'dev-secret-key-change-in-production-32-chars-min',
-      tokenExpirationHours: DEFAULT_CONFIG.tokenExpirationHours!,
-    };
-  }
-
   // Token expiration configuration
-  const tokenExpirationHours = process.env.TOKEN_EXPIRATION_HOURS 
+  const tokenExpirationHours = process.env.TOKEN_EXPIRATION_HOURS
     ? parseInt(process.env.TOKEN_EXPIRATION_HOURS, 10)
     : DEFAULT_CONFIG.tokenExpirationHours!;
 
   return {
-    jwtSecret: jwtSecret || 'dev-secret-key-change-in-production',
+    jwtSecret: jwtSecretValue(),
     tokenExpirationHours,
   };
 }
