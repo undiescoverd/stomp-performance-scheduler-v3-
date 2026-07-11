@@ -49,6 +49,13 @@ export function validateAuthConfig(config: AuthConfig): void {
     console.warn('⚠️  JWT secret should be at least 32 characters for security');
   }
 
+  // A non-numeric TOKEN_EXPIRATION_HOURS makes parseInt() return NaN, which
+  // silently passes both the <=0 and >168 checks below (NaN comparisons are
+  // always false) and then corrupts the JWT's exp claim downstream.
+  if (Number.isNaN(config.tokenExpirationHours)) {
+    throw new Error('Token expiration hours must be a valid number');
+  }
+
   if (config.tokenExpirationHours <= 0) {
     throw new Error('Token expiration hours must be positive');
   }
