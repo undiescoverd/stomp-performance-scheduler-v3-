@@ -302,9 +302,12 @@ function validateRoleEligibilityWithSuggestions(assignments: Assignment[], castM
   const issues: ValidationIssue[] = [];
   
   assignments.forEach(assignment => {
+    // OFF is bench bookkeeping, not a stage role — no one is "eligible" for it.
+    if (assignment.role === "OFF") return;
+
     const show = activeShows.find(s => s.id === assignment.showId);
     if (!show) return;
-    
+
     const showDate = formatDateForDisplay(show.date, show.time);
     const castMember = castMembers.find(m => m.name === assignment.performer);
     
@@ -578,6 +581,8 @@ function analyzeLoadBalancing(assignments: Assignment[], activeShows: Show[], ca
   
   const showPerformers = new Map<string, Set<string>>();
   assignments.forEach(assignment => {
+    // An OFF row is a bench slot, not a stage appearance.
+    if (assignment.role === "OFF") return;
     if (activeShows.some(show => show.id === assignment.showId)) {
       if (!showPerformers.has(assignment.showId)) {
         showPerformers.set(assignment.showId, new Set());
@@ -594,10 +599,12 @@ function analyzeLoadBalancing(assignments: Assignment[], activeShows: Show[], ca
     }
   }
   
-  // Calculate expected range
+  // Calculate expected range. Every show fields 8 performers, so the expected
+  // per-performer load is (shows × 8 stage slots) / cast size — dividing raw
+  // show count by cast size would flag a normal 4-of-6-shows load as critical.
   const totalShows = activeShows.length;
   const totalPerformers = castMembers.length;
-  const averageShows = totalShows > 0 ? totalShows / totalPerformers : 0;
+  const averageShows = totalShows > 0 && totalPerformers > 0 ? (totalShows * 8) / totalPerformers : 0;
   const expectedMin = Math.max(0, Math.floor(averageShows * 0.7));
   const expectedMax = Math.ceil(averageShows * 1.3);
   
@@ -794,11 +801,14 @@ function generateSmartRecommendations(issues: ValidationIssue[], loadBalancing: 
 }
 
 function calculateCompletionPercentage(assignments: Assignment[], activeShows: Show[]): number {
-  const totalSlots = activeShows.length * 8; // 8 roles per show
+  const totalSlots = activeShows.length * 8; // 8 stage roles per show
+  // OFF rows are bench bookkeeping, not filled stage slots — counting them
+  // pushes a fully-cast show past 100% (12/8) and breaks the isValid gate.
   const filledSlots = assignments.filter(assignment =>
+    assignment.role !== "OFF" &&
     activeShows.some(show => show.id === assignment.showId)
   ).length;
-  
+
   return totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 100;
 }
 

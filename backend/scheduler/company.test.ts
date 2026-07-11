@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { getCompany, addMember, deleteMember } from './company';
+import { getCompany, deleteMember } from './company';
 import { CAST_MEMBERS } from './types';
+import { scheduleDB } from './db';
 
 describe('Company roster seeding', () => {
   it('seeds exactly the 12 defaults on first call', async () => {
@@ -33,10 +34,14 @@ describe('Company roster seeding', () => {
     expect(afterAnotherCall.currentCompany).toEqual([]);
     expect(afterAnotherCall.archive).toEqual([]);
 
-    // Restore a minimal roster so later tests in this run aren't left
-    // with zero cast members.
-    await addMember({ name: 'TEST_RESTORE', eligibleRoles: ['Sarge'] });
+    // Restore the FULL default roster so later test files (which share this
+    // database) see the real 12-member company, not a 1-member stub: wipe the
+    // seed marker and let ensureSeeded() run again on the next getCompany().
+    await scheduleDB.exec`DELETE FROM company_members`;
+    await scheduleDB.exec`DELETE FROM company_seed_marker`;
     const restored = await getCompany();
-    expect(restored.currentCompany.some(m => m.name === 'TEST_RESTORE')).toBe(true);
+    const reseeded = restored.currentCompany.filter(m => m.id.startsWith('member_seed_'));
+    expect(reseeded.length).toBe(CAST_MEMBERS.length);
+    expect(new Set(reseeded.map(m => m.name))).toEqual(new Set(CAST_MEMBERS.map(m => m.name)));
   });
 });

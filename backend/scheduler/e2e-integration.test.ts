@@ -10,12 +10,17 @@ import { validate } from './validate';
 import { validateComprehensive } from './validate_comprehensive';
 import { getCastMembers } from './cast_members';
 import { getCompany } from './company';
-import { Show, Assignment, Role } from './types';
+import { CAST_MEMBERS, Show, Assignment, Role } from './types';
 
 describe('E2E Integration Tests', () => {
   // Test data
   const testLocation = 'London';
   const testWeek = '42';
+
+  // Generated assignments include explicit OFF rows: every show carries all 12
+  // performers (8 stage roles + 4 OFF), and the company day-off carries an
+  // OFF/RED row for each of the 12. Stage rows are the cast roles only.
+  const stage = (assignments: Assignment[]) => assignments.filter(a => a.role !== 'OFF');
   
   const testShows: Show[] = [
     { id: "show1", date: "2024-10-15", time: "19:00", callTime: "18:00", status: "show" },
@@ -79,9 +84,11 @@ describe('E2E Integration Tests', () => {
       expect(autoGenResponse.assignments).toBeDefined();
       expect(autoGenResponse.errors).toBeUndefined();
 
-      // Verify assignments only for show days (not travel/dayoff)
+      // Stage roles only exist on show days; the total also includes 4 OFF
+      // rows per show plus 12 OFF/RED rows on the company day-off (dayoff1).
       const activeShows = testShows.filter(show => show.status === 'show');
-      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 8);
+      expect(stage(autoGenResponse.assignments)).toHaveLength(activeShows.length * 8);
+      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 12 + 12);
 
       // Step 3: Update schedule with generated assignments
       const updateResponse = await update({
@@ -136,14 +143,17 @@ describe('E2E Integration Tests', () => {
       
       // Count only show days
       const showDays = testShows.filter(show => show.status === 'show');
-      expect(autoGenResponse.assignments).toHaveLength(showDays.length * 8);
+      expect(stage(autoGenResponse.assignments)).toHaveLength(showDays.length * 8);
 
-      // Verify no assignments for travel/dayoff days
+      // Travel days get no rows; the company day-off carries an OFF/RED row
+      // for every one of the 12 performers.
       const travelAssignments = autoGenResponse.assignments.filter(a => a.showId === 'travel1');
       const dayoffAssignments = autoGenResponse.assignments.filter(a => a.showId === 'dayoff1');
-      
+
       expect(travelAssignments).toHaveLength(0);
-      expect(dayoffAssignments).toHaveLength(0);
+      expect(dayoffAssignments).toHaveLength(12);
+      expect(dayoffAssignments.every(a => a.role === 'OFF' && a.isRedDay)).toBe(true);
+      expect(new Set(dayoffAssignments.map(a => a.performer)).size).toBe(12);
 
       // Validation should pass
       const validateResponse = await validate({
@@ -284,7 +294,8 @@ describe('E2E Integration Tests', () => {
 
   describe('Validation Integration Scenarios', () => {
     it('should detect and report consecutive show violations', async () => {
-      // Create assignments that violate consecutive show rules
+      // Up to 6 consecutive shows is legal; 7+ is a violation. PHIL runs 7
+      // consecutive shows (violation), SEAN stops at 6 (the legal boundary).
       const consecutiveAssignments: Assignment[] = [
         { showId: "p1", role: "Sarge", performer: "PHIL" },
         { showId: "p2", role: "Sarge", performer: "PHIL" },
@@ -292,6 +303,7 @@ describe('E2E Integration Tests', () => {
         { showId: "p4", role: "Sarge", performer: "PHIL" },
         { showId: "p5", role: "Sarge", performer: "PHIL" },
         { showId: "p6", role: "Sarge", performer: "PHIL" },
+        { showId: "p7", role: "Sarge", performer: "PHIL" },
         { showId: "p1", role: "Potato", performer: "SEAN" },
         { showId: "p2", role: "Potato", performer: "SEAN" },
         { showId: "p3", role: "Potato", performer: "SEAN" },
@@ -302,29 +314,39 @@ describe('E2E Integration Tests', () => {
 
       // Basic validation
       const basicValidation = await validate({
-        shows: problemShows.slice(0, 6),
+        shows: problemShows.slice(0, 7),
         assignments: consecutiveAssignments
       });
 
       expect(basicValidation.isValid).toBe(false);
-      expect(basicValidation.errors.some(error => 
+      expect(basicValidation.errors.some(error =>
         error.includes('PHIL') && error.includes('consecutive')
       )).toBe(true);
+      // SEAN's 6-show run is legal and must not be flagged.
+      expect(basicValidation.errors.some(error =>
+        error.includes('SEAN') && error.includes('consecutive')
+      )).toBe(false);
 
       // Comprehensive validation
       const comprehensiveValidation = await validateComprehensive({
-        shows: problemShows.slice(0, 6),
+        shows: problemShows.slice(0, 7),
         assignments: consecutiveAssignments
       });
 
       expect(comprehensiveValidation.isValid).toBe(false);
       expect(comprehensiveValidation.overallScore).toBeLessThan(50);
-      
+
       const philAnalysis = comprehensiveValidation.consecutiveAnalysis.find(
         analysis => analysis.performer === 'PHIL'
       );
       expect(philAnalysis).toBeDefined();
-      expect(philAnalysis!.maxConsecutive).toBe(6);
+      expect(philAnalysis!.maxConsecutive).toBe(7);
+
+      const seanAnalysis = comprehensiveValidation.consecutiveAnalysis.find(
+        analysis => analysis.performer === 'SEAN'
+      );
+      expect(seanAnalysis).toBeDefined();
+      expect(seanAnalysis!.maxConsecutive).toBe(6);
     });
 
     it('should detect role eligibility violations', async () => {
@@ -411,9 +433,11 @@ describe('E2E Integration Tests', () => {
       const autoGen2 = await autoGenerate({ shows: extendedShows });
       expect(autoGen2.success).toBe(true);
       
-      // Should have more assignments now
+      // Should have more assignments now (no dayoff day in this fixture, so
+      // the total is exactly 12 rows — 8 stage + 4 OFF — per active show)
       const activeExtendedShows = extendedShows.filter(show => show.status === 'show');
-      expect(autoGen2.assignments).toHaveLength(activeExtendedShows.length * 8);
+      expect(stage(autoGen2.assignments)).toHaveLength(activeExtendedShows.length * 8);
+      expect(autoGen2.assignments).toHaveLength(activeExtendedShows.length * 12);
 
       // Final update and validation
       await update({
@@ -443,13 +467,56 @@ describe('E2E Integration Tests', () => {
       const autoGenResponse = await autoGenerate({ shows: testShows.slice(0, 3) });
       expect(autoGenResponse.success).toBe(true);
 
-      // Create manual overrides
-      const manualAssignments: Assignment[] = [
-        ...autoGenResponse.assignments.filter(a => a.role !== 'Sarge'), // Keep non-Sarge assignments
-        { showId: "show1", role: "Sarge", performer: "SEAN" }, // Override Sarge for show1
-        { showId: "show2", role: "Sarge", performer: "PHIL" }, // Override Sarge for show2
-        { showId: "show3", role: "Sarge", performer: "SEAN" }  // Override Sarge for show3
-      ];
+      // Force `performer` into the Sarge slot of `showId` while keeping the
+      // grid fully cast and conflict-free. Only PHIL and SEAN are
+      // Sarge-eligible, so the displaced Sarge either takes the newcomer's OFF
+      // slot, or — when the newcomer (SEAN) is on stage as Potato — Potato is
+      // refilled from the bench before the displaced PHIL goes OFF.
+      const setSarge = (rows: Assignment[], showId: string, performer: string) => {
+        const inShow = (a: Assignment) => a.showId === showId;
+        const sarge = rows.find(a => inShow(a) && a.role === 'Sarge')!;
+        if (sarge.performer === performer) return;
+
+        const displaced = sarge.performer;
+        const target = rows.find(a => inShow(a) && a.performer === performer)!;
+        sarge.performer = performer;
+
+        if (target.role === 'OFF') {
+          // Newcomer was benched: the displaced performer takes his OFF slot.
+          // Clearing isRedDay avoids handing the displaced performer a second
+          // RED day (losing one is only a warning; gaining two is an error).
+          target.performer = displaced;
+          target.isRedDay = false;
+          return;
+        }
+
+        const eligible = (name: string, role: string) =>
+          CAST_MEMBERS.find(m => m.name === name)!.eligibleRoles.includes(role as Role);
+        const bench = rows.filter(a => inShow(a) && a.role === 'OFF');
+
+        const direct = bench.find(a => eligible(a.performer, target.role));
+        if (direct) {
+          target.performer = direct.performer;
+          direct.performer = displaced;
+          direct.isRedDay = false;
+          return;
+        }
+
+        // No benched Potato cover means JAMIE and CADE are both on stage, so
+        // CADE holds Who and JOSH (the only other Who cover) is benched.
+        // Rotate: CADE -> Potato, JOSH -> Who, displaced -> JOSH's OFF slot.
+        const cade = rows.find(a => inShow(a) && a.performer === 'CADE')!;
+        const josh = bench.find(a => a.performer === 'JOSH')!;
+        target.performer = cade.performer;
+        cade.performer = josh.performer;
+        josh.performer = displaced;
+        josh.isRedDay = false;
+      };
+
+      const manualAssignments = autoGenResponse.assignments.map(a => ({ ...a }));
+      setSarge(manualAssignments, 'show1', 'SEAN');
+      setSarge(manualAssignments, 'show2', 'PHIL');
+      setSarge(manualAssignments, 'show3', 'SEAN');
 
       // Update with manual assignments
       await update({
@@ -463,13 +530,16 @@ describe('E2E Integration Tests', () => {
         assignments: manualAssignments
       });
 
+      expect(validation.errors).toEqual([]);
       expect(validation.isValid).toBe(true);
 
-      // Verify specific manual assignments are in place
-      const sargeAssignments = manualAssignments.filter(a => a.role === 'Sarge');
-      expect(sargeAssignments).toHaveLength(3);
-      expect(sargeAssignments.find(a => a.showId === 'show1')?.performer).toBe('SEAN');
-      expect(sargeAssignments.find(a => a.showId === 'show2')?.performer).toBe('PHIL');
+      // Verify the manual picks survived the round trip
+      const persisted = await get({ id: scheduleId });
+      const sargeOf = (showId: string) =>
+        persisted.schedule.assignments.find(a => a.showId === showId && a.role === 'Sarge')?.performer;
+      expect(sargeOf('show1')).toBe('SEAN');
+      expect(sargeOf('show2')).toBe('PHIL');
+      expect(sargeOf('show3')).toBe('SEAN');
     });
 
     it('should validate complete schedule export data integrity', async () => {
@@ -509,19 +579,23 @@ describe('E2E Integration Tests', () => {
       expect(hasTravelDay).toBe(true);
       expect(hasDayOff).toBe(true);
 
-      // Verify assignment data completeness
+      // Verify assignment data completeness: 8 stage + 4 OFF rows per active
+      // show, plus 12 OFF/RED rows on the company day-off.
       const activeShows = finalSchedule.schedule.shows.filter(s => s.status === 'show');
-      const expectedAssignments = activeShows.length * 8;
-      expect(finalSchedule.schedule.assignments).toHaveLength(expectedAssignments);
+      const stageAssignments = stage(finalSchedule.schedule.assignments);
+      expect(stageAssignments).toHaveLength(activeShows.length * 8);
+      expect(finalSchedule.schedule.assignments).toHaveLength(activeShows.length * 12 + 12);
 
       // Verify all roles are represented
-      const assignedRoles = new Set(finalSchedule.schedule.assignments.map(a => a.role));
-      expect(assignedRoles.size).toBe(8); // All 8 roles should be present
+      const assignedRoles = new Set(stageAssignments.map(a => a.role));
+      expect(assignedRoles.size).toBe(8); // All 8 stage roles should be present
 
-      // Verify all active shows have assignments
+      // Verify every active show is fully and uniquely cast
       activeShows.forEach(show => {
-        const showAssignments = finalSchedule.schedule.assignments.filter(a => a.showId === show.id);
-        expect(showAssignments).toHaveLength(8); // Each show should have 8 role assignments
+        const showAssignments = stageAssignments.filter(a => a.showId === show.id);
+        expect(showAssignments).toHaveLength(8);
+        expect(new Set(showAssignments.map(a => a.role)).size).toBe(8);
+        expect(new Set(showAssignments.map(a => a.performer)).size).toBe(8);
       });
     });
   });
@@ -571,14 +645,21 @@ describe('E2E Integration Tests', () => {
 
       // Auto-generate with only non-show days
       const autoGenResponse = await autoGenerate({ shows: nonShowDays });
-      
+
       expect(autoGenResponse.success).toBe(true);
-      expect(autoGenResponse.assignments).toHaveLength(0);
+      // No stage roles to fill, but the company day-off (d1) still carries an
+      // OFF/RED row for each of the 12 performers. Travel days get nothing.
+      expect(stage(autoGenResponse.assignments)).toHaveLength(0);
+      expect(autoGenResponse.assignments).toHaveLength(12);
+      const dayoffAssignments = autoGenResponse.assignments.filter(a => a.showId === 'd1');
+      expect(dayoffAssignments).toHaveLength(12);
+      expect(dayoffAssignments.every(a => a.role === 'OFF' && a.isRedDay)).toBe(true);
+      expect(new Set(dayoffAssignments.map(a => a.performer)).size).toBe(12);
 
       // Validation should pass
       const validation = await validate({
         shows: nonShowDays,
-        assignments: []
+        assignments: autoGenResponse.assignments
       });
 
       expect(validation.isValid).toBe(true);
@@ -620,51 +701,27 @@ describe('E2E Integration Tests', () => {
   });
 
   describe('Performance and Load Testing', () => {
-    it('should handle large schedule generation efficiently', async () => {
-      // Create a large schedule (2 weeks)
-      const largeShows: Show[] = [];
-      for (let day = 0; day < 14; day++) {
-        const date = new Date(2024, 9, 15 + day); // October 15-28, 2024
-        const dateStr = date.toISOString().split('T')[0];
-        
-        if (day % 7 === 0) { // Sundays are day off
-          largeShows.push({
-            id: `dayoff_${day}`,
-            date: dateStr,
-            time: "00:00",
-            callTime: "00:00",
-            status: "dayoff"
-          });
-        } else if (day % 7 === 6) { // Saturdays have two shows
-          largeShows.push({
-            id: `show_${day}a`,
-            date: dateStr,
-            time: "16:00",
-            callTime: "14:00",
-            status: "show"
-          });
-          largeShows.push({
-            id: `show_${day}b`,
-            date: dateStr,
-            time: "21:00",
-            callTime: "18:00",
-            status: "show"
-          });
-        } else { // Regular show days
-          largeShows.push({
-            id: `show_${day}`,
-            date: dateStr,
-            time: "19:00",
-            callTime: "18:00",
-            status: "show"
-          });
-        }
-      }
+    it('should handle a full heavy week generation efficiently', async () => {
+      // One realistic heavy week: Monday company day-off, then six playing
+      // days including two matinee+evening doubles — 8 shows total. (The
+      // algorithm is week-scoped by design; multi-week runs are created as
+      // one schedule per week by the tours flow, never fed to it whole.)
+      const heavyWeek: Show[] = [
+        { id: "mon_off", date: "2024-10-14", time: "00:00", callTime: "00:00", status: "dayoff" },
+        { id: "hw_tue", date: "2024-10-15", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "hw_wed", date: "2024-10-16", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "hw_thu", date: "2024-10-17", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "hw_fri", date: "2024-10-18", time: "19:00", callTime: "18:00", status: "show" },
+        { id: "hw_sat_mat", date: "2024-10-19", time: "14:00", callTime: "12:00", status: "show" },
+        { id: "hw_sat_eve", date: "2024-10-19", time: "19:00", callTime: "17:00", status: "show" },
+        { id: "hw_sun_mat", date: "2024-10-20", time: "14:00", callTime: "12:00", status: "show" },
+        { id: "hw_sun_eve", date: "2024-10-20", time: "19:00", callTime: "17:00", status: "show" }
+      ];
 
       const createResponse = await create({
-        location: 'Large Schedule Test',
+        location: 'Heavy Week Test',
         week: '53',
-        shows: largeShows
+        shows: heavyWeek
       });
 
       const scheduleId = createResponse.schedule.id;
@@ -672,22 +729,25 @@ describe('E2E Integration Tests', () => {
 
       // Measure auto-generation time
       const startTime = Date.now();
-      const autoGenResponse = await autoGenerate({ shows: largeShows });
+      const autoGenResponse = await autoGenerate({ shows: heavyWeek });
       const endTime = Date.now();
-      
+
       expect(autoGenResponse.success).toBe(true);
       expect(endTime - startTime).toBeLessThan(5000); // Should complete within 5 seconds
 
-      // Verify assignment count
-      const activeShows = largeShows.filter(show => show.status === 'show');
-      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 8);
+      // Verify assignment count: 8 shows x 8 stage roles, and 12 rows per
+      // show plus 12 OFF/RED rows on the Monday day-off in total.
+      const activeShows = heavyWeek.filter(show => show.status === 'show');
+      expect(stage(autoGenResponse.assignments)).toHaveLength(activeShows.length * 8);
+      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 12 + 12);
 
       // Quick validation
       const validation = await validate({
-        shows: largeShows,
+        shows: heavyWeek,
         assignments: autoGenResponse.assignments
       });
 
+      expect(validation.errors).toEqual([]);
       expect(validation.isValid).toBe(true);
     });
 

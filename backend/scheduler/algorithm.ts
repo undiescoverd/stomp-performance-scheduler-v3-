@@ -705,6 +705,12 @@ export class SchedulingAlgorithm {
     try {
       this.clearCaches();
 
+      // An empty week has nothing to cast: succeed with no assignments instead
+      // of burning 100 attempts and failing on RED-day coverage no day can hold.
+      if (this.shows.length === 0) {
+        return { success: true, assignments: [] };
+      }
+
       // If no cast members provided, fetch from company system
       if (this.castMembers.length === 0) {
         try {
