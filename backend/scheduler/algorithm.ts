@@ -77,6 +77,13 @@ export class SchedulingAlgorithm {
   // whose forced RED day could not be created without breaking casting).
   private lastRedDayWarnings: string[] = [];
 
+  // Manual picks seeded from an existing (partially-filled) grid so that
+  // Auto-Generate fills only EMPTY slots and never vacates a user's pick.
+  // Both stay empty unless the caller passes existingAssignments, so every
+  // code path below is byte-for-byte identical to today when nothing is locked.
+  private lockedCells: Set<string> = new Set();            // `${showId}:${role}`
+  private lockedRedDates: Map<string, string> = new Map(); // performer -> RED date (YYYY-MM-DD)
+
   // How many shows in the current generation attempt fell back from fair
   // OFF-selection to the random old logic (day-off fairness may be reduced).
   private fairnessFallbackCount = 0;
@@ -96,13 +103,13 @@ export class SchedulingAlgorithm {
     return shuffled;
   }
 
-  constructor(shows: Show[], castMembers?: CastMember[]) {
+  constructor(shows: Show[], castMembers?: CastMember[], existingAssignments?: Assignment[]) {
     this.shows = shows;
     this.assignments = new Map();
     this.offAssignments = new Map();
-    
+
     this.castMembers = castMembers || [];
-    
+
     // Initialize empty assignments for all shows
     shows.forEach(show => {
       const showAssignment: ShowAssignment = {};
@@ -112,6 +119,40 @@ export class SchedulingAlgorithm {
       this.assignments.set(show.id, showAssignment);
       this.offAssignments.set(show.id, []);
     });
+
+    // Seed any manual picks (gap-fill mode). Skipped entirely for the 2-arg
+    // callers (validate.ts, tests) so their behaviour is unchanged.
+    if (existingAssignments?.length) {
+      this.seedAssignments(existingAssignments);
+    }
+  }
+
+  // Seed manual picks from a partially-filled grid into internal state and mark
+  // them "locked" so gap-fill preserves them. Stage roles go into the
+  // assignments map + lockedCells; manual RED days (OFF + isRedDay) are pinned
+  // in lockedRedDates. Non-RED OFF records are derived downstream, so ignored.
+  private seedAssignments(existing: Assignment[]): void {
+    for (const a of existing) {
+      if (a.role === 'OFF') {
+        if (a.isRedDay === true && a.performer) {
+          const show = this.shows.find(s => s.id === a.showId);
+          if (show) {
+            this.lockedRedDates.set(a.performer, show.date);
+          }
+        }
+        continue;
+      }
+
+      if (!a.performer) continue;
+      const show = this.shows.find(s => s.id === a.showId);
+      if (!show || show.status !== 'show') continue;
+      if (!this.roles.includes(a.role as Role)) continue;
+
+      const showAssignment = this.assignments.get(a.showId);
+      if (!showAssignment) continue;
+      showAssignment[a.role] = a.performer;
+      this.lockedCells.add(`${a.showId}:${a.role}`);
+    }
   }
 
   // Clear caches when data changes
@@ -832,9 +873,18 @@ export class SchedulingAlgorithm {
   // Helper methods for the new assignRolesForShow structure
 
   private getEligiblePerformers(role: Role, showId: string): CastMember[] {
+    const show = this.shows.find(s => s.id === showId);
     return this.castMembers
       .filter(member => member.eligibleRoles.includes(role))
       .filter(member => {
+        // CHECK 0: Don't staff a performer onto an empty slot on their manually
+        // locked RED date — otherwise the final OFF-marker loop emits no RED for
+        // them and post-validation fails, destroying the user's picks. No-op
+        // when lockedRedDates is empty (get() -> undefined !== show.date).
+        if (show && this.lockedRedDates.get(member.name) === show.date) {
+          return false;
+        }
+
         // CHECK 1: Not already assigned to this show
         if (this.isPerformerAssignedToShow(member.name, showId)) {
           return false;
@@ -917,6 +967,12 @@ export class SchedulingAlgorithm {
         
         if (showAssignment[role] === "") {
           const availableCast = eligibleCast.filter(member => {
+            // Respect a manually locked RED day on this date (mirrors
+            // getEligiblePerformers). No-op when lockedRedDates is empty.
+            if (this.lockedRedDates.get(member.name) === show.date) {
+              return false;
+            }
+
             // Be more lenient in partial schedule generation
             if (this.isPerformerAssignedToShow(member.name, show.id)) {
               return false;
@@ -1065,6 +1121,16 @@ export class SchedulingAlgorithm {
     // Removing a performer from every show on a date vacates the stage roles
     // they held, so each vacated (show, role) must be REFILLED by a
     // constraint-clean substitute — otherwise the show ships with < 8 on stage.
+    // Pin manually locked RED days: they override the natural pick, exclude the
+    // performer from the force-vacate pass below (they already have a RED day),
+    // and findRefillCandidate refuses to sub them onto their own RED date.
+    // No-op when lockedRedDates is empty.
+    for (const [performer, date] of this.lockedRedDates) {
+      if (allPerformers.includes(performer)) {
+        performerRedDays[performer] = date;
+      }
+    }
+
     const performersWithoutRedDays = allPerformers.filter(p => !performerRedDays[p]);
     const showById = new Map(this.shows.map(s => [s.id, s]));
 
@@ -1085,6 +1151,14 @@ export class SchedulingAlgorithm {
         const vacated = finalAssignments.filter(a =>
           a.performer === performer && a.role !== 'OFF' && showById.get(a.showId)?.date === date
         );
+
+        // Never vacate a manually locked pick to free a forced RED day; try the
+        // next candidate date instead. If none is feasible, the !placed branch
+        // below records a warning that trips the re-validation retry, so the
+        // pick is never destroyed. No-op when lockedCells is empty.
+        if (vacated.some(va => this.lockedCells.has(`${va.showId}:${va.role}`))) {
+          continue;
+        }
 
         // Work on a trial copy so an infeasible date leaves nothing half-done.
         let trial = finalAssignments.filter(a =>
@@ -1273,11 +1347,18 @@ export class SchedulingAlgorithm {
 
   private clearAllAssignments(): void {
     this.clearCaches();
-    
+
     this.shows.forEach(show => {
       const showAssignment: ShowAssignment = {};
+      const prev = this.assignments.get(show.id);
       this.roles.forEach(role => {
-        showAssignment[role] = "";
+        // Keep a locked (manually seeded) pick across per-attempt resets; clear
+        // everything else. Empty lockedCells -> every cell "" -> identical to
+        // today. Fill never overwrites a locked cell (it is non-empty and the
+        // gap guards skip it), so prev always holds the seeded value.
+        showAssignment[role] = this.lockedCells.has(`${show.id}:${role}`)
+          ? (prev?.[role] ?? "")
+          : "";
       });
       this.assignments.set(show.id, showAssignment);
       this.offAssignments.set(show.id, []);

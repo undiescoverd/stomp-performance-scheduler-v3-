@@ -18,7 +18,13 @@ export function useCompany() {
     queryFn: () => backend.scheduler.getCompany(),
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["company"] });
+  // Company edits must also refresh the Schedule Editor's roster, which lives
+  // under a separate ['cast-members'] query. Without this, an added/archived
+  // member wouldn't reach the scheduler until that query's 60s refetch fired.
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["company"] });
+    qc.invalidateQueries({ queryKey: ["cast-members"] });
+  };
 
   // The company endpoints throw a plain Error ("Member not found") for a missing
   // id, which surfaces as an untyped 500. Degrade gracefully: tell the user and

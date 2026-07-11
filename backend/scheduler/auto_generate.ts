@@ -4,6 +4,10 @@ import { SchedulingAlgorithm, AutoGenerateResult } from "./algorithm";
 
 export interface AutoGenerateRequest {
   shows: Show[];
+  // Assignments the user has already placed. Auto-Generate fills only the empty
+  // slots and preserves these picks (including a manually toggled RED day).
+  // Omitted/empty -> generates from a blank slate, exactly as before.
+  existingAssignments?: Assignment[];
 }
 
 export interface AutoGenerateResponse {
@@ -22,7 +26,7 @@ export const autoGenerate = api<AutoGenerateRequest, AutoGenerateResponse>(
     const { getCastMembers } = await import("./cast_members");
     const castData = await getCastMembers();
     
-    const algorithm = new SchedulingAlgorithm(req.shows, castData.castMembers);
+    const algorithm = new SchedulingAlgorithm(req.shows, castData.castMembers, req.existingAssignments);
     const result = await algorithm.autoGenerate();
     
     return {
