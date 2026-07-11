@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Users, Drama, Layers, Venus } from "lucide-react";
+import { Plus, Users, Drama, Layers, Venus, LayoutGrid, List, ArrowDownAZ, ArrowDownZA } from "lucide-react";
 import type { CompanyMember } from "~backend/scheduler/company";
 import {
   AlertDialog,
@@ -14,9 +14,11 @@ import {
 import { PageHeader } from "@/components/shell/PageHeader";
 import { StatCard } from "@/components/domain/StatCard";
 import { CastCard } from "@/components/domain/company/CastCard";
+import { CastListRow } from "@/components/domain/company/CastListRow";
 import { EligibilityMatrix } from "@/components/domain/company/EligibilityMatrix";
 import { CastMemberDialog } from "@/components/domain/company/CastMemberDialog";
 import { useCompany, type MemberInput } from "@/hooks/useCompany";
+import { sortByName } from "@/components/domain/format";
 
 export function CompanyScreen() {
   const { currentCompany, archive, roles, isLoading, error, addMember, updateMember, setStatus, deleteMember } =
@@ -25,6 +27,8 @@ export function CompanyScreen() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<CompanyMember | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CompanyMember | null>(null);
+  const [viewMode, setViewMode] = useState<"badge" | "list">("badge");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const openAdd = () => {
     setEditTarget(null);
@@ -42,6 +46,8 @@ export function CompanyScreen() {
 
   const multiRole = currentCompany.filter((m) => m.eligibleRoles.length > 1).length;
   const femaleCount = currentCompany.filter((m) => m.gender === "female").length;
+  const sortedActive = sortByName(currentCompany, sortDir);
+  const sortedArchive = sortByName(archive, sortDir);
 
   return (
     <>
@@ -71,8 +77,36 @@ export function CompanyScreen() {
 
       <section className="mt-32">
         <div className="section-head">
-          <h2 className="h1">Cast</h2>
-          <div className="kicker">Edit eligibility, archive, or remove</div>
+          <div>
+            <h2 className="h1">Cast</h2>
+            <div className="kicker">Edit eligibility, archive, or remove</div>
+          </div>
+          <div className="toolbar">
+            <button
+              className="btn btn-ghost btn-sm"
+              title={sortDir === "asc" ? "Sorted A to Z — click for Z to A" : "Sorted Z to A — click for A to Z"}
+              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            >
+              {sortDir === "asc" ? <ArrowDownAZ /> : <ArrowDownZA />}
+              Name
+            </button>
+            <div className="view-toggle">
+              <button
+                className={`btn btn-ghost btn-sm btn-icon${viewMode === "badge" ? " active" : ""}`}
+                title="Badge view"
+                onClick={() => setViewMode("badge")}
+              >
+                <LayoutGrid />
+              </button>
+              <button
+                className={`btn btn-ghost btn-sm btn-icon${viewMode === "list" ? " active" : ""}`}
+                title="List view"
+                onClick={() => setViewMode("list")}
+              >
+                <List />
+              </button>
+            </div>
+          </div>
         </div>
 
         {isLoading ? (
@@ -91,9 +125,21 @@ export function CompanyScreen() {
               <Plus /> Add the first cast member
             </button>
           </div>
+        ) : viewMode === "list" ? (
+          <div className="cast-list">
+            {sortedActive.map((m) => (
+              <CastListRow
+                key={m.id}
+                member={m}
+                onEdit={openEdit}
+                onArchiveToggle={(mem) => setStatus.mutate({ id: mem.id, status: "archived" })}
+                onDelete={setDeleteTarget}
+              />
+            ))}
+          </div>
         ) : (
           <div className="cast-grid">
-            {currentCompany.map((m) => (
+            {sortedActive.map((m) => (
               <CastCard
                 key={m.id}
                 member={m}
@@ -111,17 +157,31 @@ export function CompanyScreen() {
               <h2 className="h2">Archived</h2>
               <div className="kicker">{archive.length} archived</div>
             </div>
-            <div className="cast-grid">
-              {archive.map((m) => (
-                <CastCard
-                  key={m.id}
-                  member={m}
-                  onEdit={openEdit}
-                  onArchiveToggle={(mem) => setStatus.mutate({ id: mem.id, status: "active" })}
-                  onDelete={setDeleteTarget}
-                />
-              ))}
-            </div>
+            {viewMode === "list" ? (
+              <div className="cast-list">
+                {sortedArchive.map((m) => (
+                  <CastListRow
+                    key={m.id}
+                    member={m}
+                    onEdit={openEdit}
+                    onArchiveToggle={(mem) => setStatus.mutate({ id: mem.id, status: "active" })}
+                    onDelete={setDeleteTarget}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="cast-grid">
+                {sortedArchive.map((m) => (
+                  <CastCard
+                    key={m.id}
+                    member={m}
+                    onEdit={openEdit}
+                    onArchiveToggle={(mem) => setStatus.mutate({ id: mem.id, status: "active" })}
+                    onDelete={setDeleteTarget}
+                  />
+                ))}
+              </div>
+            )}
           </>
         ) : null}
       </section>

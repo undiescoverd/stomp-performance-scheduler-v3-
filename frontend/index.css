@@ -458,6 +458,11 @@
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .toolbar .spacer { flex: 1; }
 
+.view-toggle { display: flex; border: 1px solid var(--border-2); border-radius: 8px; overflow: hidden; }
+.view-toggle .btn { border-radius: 0; border: none; border-left: 1px solid var(--border-2); }
+.view-toggle .btn:first-child { border-left: none; }
+.view-toggle .btn.active { background: var(--accent); color: var(--accent-fg); }
+
 /* ---------- The schedule grid (showpiece) ---------- */
 .grid-wrap {
   background: var(--surface);
