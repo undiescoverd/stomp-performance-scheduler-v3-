@@ -17,9 +17,7 @@ import {
   JWTPayload,
   RegisterRequest,
   LoginRequest,
-  AuthResponse,
-  AuthError,
-  AuthErrorCode
+  AuthResponse
 } from './types';
 import { authConfig } from './config';
 
@@ -81,17 +79,11 @@ export const register = api<RegisterRequest, RegisterResponse>(
   async (req) => {
     // Validate input
     if (!req.email || !req.password) {
-      throw new AuthError({
-        code: AuthErrorCode.InvalidCredentials,
-        message: "Email and password are required"
-      });
+      throw APIError.invalidArgument("Email and password are required");
     }
 
     if (req.password.length < 8) {
-      throw new AuthError({
-        code: AuthErrorCode.InvalidCredentials,
-        message: "Password must be at least 8 characters long"
-      });
+      throw APIError.invalidArgument("Password must be at least 8 characters long");
     }
 
     const email = req.email.toLowerCase().trim();
@@ -102,10 +94,7 @@ export const register = api<RegisterRequest, RegisterResponse>(
     `;
 
     if (existingUser) {
-      throw new AuthError({
-        code: AuthErrorCode.UserAlreadyExists,
-        message: "A user with this email already exists"
-      });
+      throw APIError.alreadyExists("A user with this email already exists");
     }
 
     // Create new user
@@ -158,10 +147,7 @@ export const login = api<LoginRequest, LoginResponse>(
   { expose: true, method: "POST", path: "/auth/login", auth: false },
   async (req) => {
     if (!req.email || !req.password) {
-      throw new AuthError({
-        code: AuthErrorCode.InvalidCredentials,
-        message: "Email and password are required"
-      });
+      throw APIError.invalidArgument("Email and password are required");
     }
 
     const email = req.email.toLowerCase().trim();
@@ -174,26 +160,17 @@ export const login = api<LoginRequest, LoginResponse>(
     `;
 
     if (!userRow) {
-      throw new AuthError({
-        code: AuthErrorCode.InvalidCredentials,
-        message: "Invalid email or password"
-      });
+      throw APIError.unauthenticated("Invalid email or password");
     }
 
     if (!userRow.is_active) {
-      throw new AuthError({
-        code: AuthErrorCode.Unauthorized,
-        message: "Account is disabled"
-      });
+      throw APIError.permissionDenied("Account is disabled");
     }
 
     // Verify password
     const isPasswordValid = await verifyPassword(req.password, userRow.password_hash);
     if (!isPasswordValid) {
-      throw new AuthError({
-        code: AuthErrorCode.InvalidCredentials,
-        message: "Invalid email or password"
-      });
+      throw APIError.unauthenticated("Invalid email or password");
     }
 
     // Create session
