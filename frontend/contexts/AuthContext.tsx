@@ -6,6 +6,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { deriveBackendUrlFromLocation } from '../lib/backendUrl';
 
 // Types
 interface User {
@@ -81,8 +82,8 @@ const removeStoredToken = () => {
 };
 
 // API functions - Environment-aware backend URL
-const API_BASE = import.meta.env.PROD 
-  ? (import.meta.env.VITE_API_URL || 'https://stomp-performance-scheduler-hxdi.encr.app')
+const API_BASE = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_URL || deriveBackendUrlFromLocation() || 'https://stomp-performance-scheduler-hxdi.encr.app')
   : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:4000');
 
 const apiCall = async (endpoint: string, options: RequestInit = {}) => {

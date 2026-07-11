@@ -11,6 +11,7 @@
  * are automatically authenticated.
  */
 import { Client, Local, Environment, PreviewEnv } from '../client';
+import { deriveBackendUrlFromLocation } from './backendUrl';
 
 const TOKEN_KEY = 'stomp_auth_token';
 
@@ -40,7 +41,7 @@ const authedFetch: typeof fetch = (input, init) => {
   });
 };
 
-const target: string = import.meta.env.VITE_CLIENT_TARGET || Local;
+const target: string = import.meta.env.VITE_CLIENT_TARGET || deriveBackendUrlFromLocation() || Local;
 
 export const backend = new Client(target, {
   fetcher: authedFetch,
