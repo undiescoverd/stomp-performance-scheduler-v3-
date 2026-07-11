@@ -73,26 +73,7 @@ export interface AuthConfig {
   tokenExpirationHours: number;
 }
 
-// Error types for authentication
-export enum AuthErrorCode {
-  InvalidCredentials = "INVALID_CREDENTIALS",
-  UserNotFound = "USER_NOT_FOUND",
-  UserAlreadyExists = "USER_ALREADY_EXISTS",
-  InvalidToken = "INVALID_TOKEN",
-  TokenExpired = "TOKEN_EXPIRED",
-  SessionNotFound = "SESSION_NOT_FOUND",
-  Unauthorized = "UNAUTHORIZED",
-  InternalError = "INTERNAL_ERROR"
-}
-
-export class AuthError extends Error {
-  code: AuthErrorCode;
-  details?: string;
-
-  constructor(errorInfo: { code: AuthErrorCode; message: string; details?: string }) {
-    super(errorInfo.message);
-    this.name = 'AuthError';
-    this.code = errorInfo.code;
-    this.details = errorInfo.details;
-  }
-}
+// Auth failures are raised with Encore's APIError (see auth/auth.ts) so they map to
+// proper HTTP status codes and client-visible messages. A plain Error subclass would
+// be serialized by Encore as a generic 500 "An internal error occurred", hiding the
+// real reason from the client — do not reintroduce one here.
