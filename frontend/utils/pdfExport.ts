@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { Show, Assignment, Role, CastMember } from '~backend/scheduler/types';
-import { dowShort, shortDate, type DateStyle } from '@/components/domain/format';
+import { dowShort, shortDate, isoDate, type DateStyle } from '@/components/domain/format';
 
 interface PDFExportOptions {
   location: string;
@@ -227,11 +227,14 @@ export class SchedulePDFExporter {
           const performer = offPerformers[i] || '';
           
           if (performer) {
-            // Check if they have a RED day
+            // Check if they have a RED day. Matched by calendar date (not
+            // showId) so both shows on a two-show day agree with the
+            // on-screen grid, since the RED flag is stored on only one of
+            // that day's shows.
             const hasRedDay = assignments.some(
-              a => a.performer === performer && 
-                   a.isRedDay && 
-                   a.showId === show.id
+              a => a.performer === performer &&
+                   a.isRedDay &&
+                   isoDate(shows.find(s => s.id === a.showId)?.date ?? '') === isoDate(show.date)
             );
             
             row.push({

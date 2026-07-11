@@ -1,4 +1,4 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "encore.dev/internal/codegen/auth";
 import type { AuthData } from "../auth/encore_auth";
 import { scheduleDB } from "./db";
@@ -256,7 +256,6 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
           SELECT id, location_city, week, shows_data
           FROM schedules
           WHERE tour_id = ${row.id} AND user_id = ${userId}
-          ORDER BY week
         `;
 
         // Convert weekRows AsyncGenerator to array
@@ -269,24 +268,35 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
           weekRowsArray.push(...weekRows);
         }
 
-        const weeks = weekRowsArray.map((week: any, index: number) => {
-          let showCount = 0;
-          try {
-            const showsData = week.shows_data ? JSON.parse(week.shows_data) : [];
-            showCount = Array.isArray(showsData) ? showsData.length : 0;
-          } catch (e) {
-            showCount = 0;
-          }
+        // `week` is stored as text ("Week 1", "Week 10", ...), so sorting by
+        // the column itself is lexicographic (Week 10 before Week 2). Parse
+        // the actual number back out and sort/label numerically instead.
+        const parseWeekNumber = (week: string): number => {
+          const match = /\d+/.exec(week ?? "");
+          return match ? parseInt(match[0], 10) : 0;
+        };
 
-          return {
-            id: week.id,
-            weekNumber: index + 1,
-            startDate: '',
-            endDate: '',
-            showCount: showCount,
-            locationCity: week.location_city || 'Unknown'
-          };
-        });
+        const weeks = weekRowsArray
+          .map((week: any) => ({ row: week, weekNumber: parseWeekNumber(week.week) }))
+          .sort((a, b) => a.weekNumber - b.weekNumber)
+          .map(({ row: week, weekNumber }) => {
+            let showCount = 0;
+            try {
+              const showsData = week.shows_data ? JSON.parse(week.shows_data) : [];
+              showCount = Array.isArray(showsData) ? showsData.length : 0;
+            } catch (e) {
+              showCount = 0;
+            }
+
+            return {
+              id: week.id,
+              weekNumber,
+              startDate: '',
+              endDate: '',
+              showCount: showCount,
+              locationCity: week.location_city || 'Unknown'
+            };
+          });
 
         // Parse cast member IDs
         let castMemberIds: string[] = [];
@@ -365,6 +375,13 @@ export const deleteTour = api<{ id: string }, DeleteTourResponse>(
     const authData = await getAuthData<AuthData>();
     const userId = authData?.userID ?? 'system';
 
+    const existingTour = await scheduleDB.queryRow`
+      SELECT id FROM tours WHERE id = ${req.id} AND user_id = ${userId}
+    `;
+    if (!existingTour) {
+      throw APIError.notFound("tour not found");
+    }
+
     try {
       // Count schedules that will be deleted
       const countResult = await scheduleDB.query`
@@ -413,6 +430,13 @@ export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTour
 
     const authData = await getAuthData<AuthData>();
     const userId = authData?.userID ?? 'system';
+
+    const existingWeek = await scheduleDB.queryRow`
+      SELECT id FROM schedules WHERE id = ${req.weekId} AND tour_id = ${req.tourId} AND user_id = ${userId}
+    `;
+    if (!existingWeek) {
+      throw APIError.notFound("tour week not found");
+    }
 
     try {
       await scheduleDB.exec`

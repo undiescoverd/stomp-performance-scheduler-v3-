@@ -98,6 +98,9 @@ export function useScheduleEditor(id?: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] });
       queryClient.invalidateQueries({ queryKey: ['schedule', id] });
+      // A schedule can also be a tour week (TourWeekRow links to
+      // /schedule/:id) — invalidate so the Tours screen reflects edits.
+      queryClient.invalidateQueries({ queryKey: ['tours'] });
       toast({
         title: "Success",
         description: "Schedule saved successfully"

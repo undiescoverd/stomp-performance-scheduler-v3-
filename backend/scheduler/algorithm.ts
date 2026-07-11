@@ -92,6 +92,10 @@ export class SchedulingAlgorithm {
   private _sortedActiveShows: Show[] | null = null;
   private _showIndexMap: Map<string, number> | null = null;
   private _performerShowCache: Map<string, PerformerShowData> | null = null;
+  // Identity of the assignments array the cache above was computed from —
+  // assignRedDays returns a new array, so keying on reference means the
+  // pre-RED and post-RED validateSchedule calls never share a stale cache.
+  private _performerShowCacheKey: Assignment[] | null = null;
 
   // Fisher-Yates shuffle for proper randomization
   private shuffle<T>(array: T[]): T[] {
@@ -160,6 +164,7 @@ export class SchedulingAlgorithm {
     this._sortedActiveShows = null;
     this._showIndexMap = null;
     this._performerShowCache = null;
+    this._performerShowCacheKey = null;
   }
 
   // Get sorted active shows with caching
@@ -1414,7 +1419,7 @@ export class SchedulingAlgorithm {
 
   // Optimized consecutive show analysis for validation
   private analyzeConsecutiveShows(assignments: Assignment[]): Map<string, PerformerShowData> {
-    if (this._performerShowCache !== null) {
+    if (this._performerShowCache !== null && this._performerShowCacheKey === assignments) {
       return this._performerShowCache;
     }
 
@@ -1463,6 +1468,7 @@ export class SchedulingAlgorithm {
     }
 
     this._performerShowCache = performerData;
+    this._performerShowCacheKey = assignments;
     return performerData;
   }
 

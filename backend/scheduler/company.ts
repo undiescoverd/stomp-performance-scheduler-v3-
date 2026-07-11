@@ -152,7 +152,7 @@ export const getCompany = api<void, GetCompanyResponse>(
 
 // Adds a new cast member to the company.
 export const addMember = api<AddMemberRequest, AddMemberResponse>(
-  { expose: true, method: "POST", path: "/company/members" },
+  { expose: true, method: "POST", path: "/company/members", auth: true },
   async (req) => {
     await ensureSeeded();
 
@@ -200,7 +200,7 @@ export const addMember = api<AddMemberRequest, AddMemberResponse>(
 
 // Updates an existing cast member.
 export const updateMember = api<UpdateMemberRequest, UpdateMemberResponse>(
-  { expose: true, method: "PUT", path: "/company/members/:id" },
+  { expose: true, method: "PUT", path: "/company/members/:id", auth: true },
   async (req) => {
     await ensureSeeded();
 
@@ -257,7 +257,7 @@ export const updateMember = api<UpdateMemberRequest, UpdateMemberResponse>(
 
 // Deletes a cast member permanently.
 export const deleteMember = api<DeleteMemberRequest, void>(
-  { expose: true, method: "DELETE", path: "/company/members/:id" },
+  { expose: true, method: "DELETE", path: "/company/members/:id", auth: true },
   async (req) => {
     await ensureSeeded();
 
@@ -274,7 +274,7 @@ export const deleteMember = api<DeleteMemberRequest, void>(
 
 // Reorders the current company members.
 export const reorderMembers = api<ReorderMembersRequest, void>(
-  { expose: true, method: "PUT", path: "/company/reorder" },
+  { expose: true, method: "PUT", path: "/company/reorder", auth: true },
   async (req) => {
     await ensureSeeded();
 
