@@ -94,6 +94,7 @@ export function CompanyScreen() {
               <button
                 className={`btn btn-ghost btn-sm btn-icon${viewMode === "badge" ? " active" : ""}`}
                 title="Badge view"
+                aria-pressed={viewMode === "badge"}
                 onClick={() => setViewMode("badge")}
               >
                 <LayoutGrid />
@@ -101,6 +102,7 @@ export function CompanyScreen() {
               <button
                 className={`btn btn-ghost btn-sm btn-icon${viewMode === "list" ? " active" : ""}`}
                 title="List view"
+                aria-pressed={viewMode === "list"}
                 onClick={() => setViewMode("list")}
               >
                 <List />
