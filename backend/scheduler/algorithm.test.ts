@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SchedulingAlgorithm } from './algorithm';
-import { Show, CastMember, Role, Assignment } from './types';
+import { Show, CastMember, Role, Assignment, CAST_MEMBERS } from './types';
 
 describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
   const defaultCastMembers: CastMember[] = [
@@ -850,5 +850,112 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
         expect(seanRedDate).toBe("2024-01-02");
       }
     });
+  });
+});
+
+describe('M3 — nominated company RED day', () => {
+  // 4 show dates only (Tue double, Thu single, Fri double, Sat double), plus a
+  // Sunday day off. Right at (or just under) the v3.1 fairness path's
+  // capacity for seating all 12 individual RED days: which of the 100
+  // randomized attempts happens to seat the most varies run to run, so this
+  // fixture exercises the flagged path deterministically, and the unflagged
+  // path's bestAttempt fallback (bug 2) probabilistically — it reliably
+  // produces near-misses without asserting an exact, un-reproducible count.
+  const sparseWeek = (): Show[] => ([
+    { id: "tue1", date: "2024-01-02", time: "15:00", callTime: "13:30", status: "show" },
+    { id: "tue2", date: "2024-01-02", time: "20:00", callTime: "18:00", status: "show" },
+    { id: "thu1", date: "2024-01-04", time: "20:00", callTime: "18:00", status: "show" },
+    { id: "fri1", date: "2024-01-05", time: "15:00", callTime: "13:30", status: "show" },
+    { id: "fri2", date: "2024-01-05", time: "20:00", callTime: "18:00", status: "show" },
+    { id: "sat1", date: "2024-01-06", time: "15:00", callTime: "13:30", status: "show" },
+    { id: "sat2", date: "2024-01-06", time: "20:00", callTime: "18:00", status: "show" },
+    { id: "sun", date: "2024-01-07", time: "00:00", callTime: "00:00", status: "dayoff" },
+  ]);
+
+  const redDatesFor = (assignments: Assignment[], shows: Show[], performer: string): Set<string> => {
+    const dateById = new Map(shows.map(s => [s.id, s.date]));
+    return new Set(
+      assignments
+        .filter(a => a.performer === performer && a.role === 'OFF' && a.isRedDay)
+        .map(a => dateById.get(a.showId))
+        .filter((d): d is string => !!d)
+    );
+  };
+
+  it('flagged: the Sunday day off is everyone\'s RED day, none of the 12 get an individual one', async () => {
+    const shows = sparseWeek().map(s => s.id === 'sun' ? { ...s, isCompanyRedDay: true } : s);
+    const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS);
+    const result = await algorithm.autoGenerate();
+    expect(result.success).toBe(true);
+
+    for (const member of CAST_MEMBERS) {
+      expect([...redDatesFor(result.assignments, shows, member.name)]).toEqual(["2024-01-07"]);
+    }
+    // Every show is still fully cast — flagging the day off takes it out of
+    // the fairness path entirely, so capacity is a non-issue here.
+    for (const show of shows.filter(s => s.status === 'show')) {
+      const stage = result.assignments.filter(a => a.showId === show.id && a.role !== 'OFF');
+      expect(new Set(stage.map(a => a.performer)).size).toBe(8);
+    }
+  });
+
+  it('unflagged: ships a fully-cast schedule even on a near-miss, instead of degrading to a relaxed partial one (bug 2)', async () => {
+    const shows = sparseWeek(); // Sunday day off present but NOT flagged
+    const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS);
+    const result = await algorithm.autoGenerate();
+    expect(result.success).toBe(true);
+
+    const seated = CAST_MEMBERS.filter(m => redDatesFor(result.assignments, shows, m.name).size === 1).length;
+    expect(seated).toBeLessThanOrEqual(12);
+    // Fewer than 12 seated can only ship (as success:true) via the bestAttempt
+    // fallback, which always carries its RED-day warnings; a lucky attempt
+    // that happens to seat all 12 carries none. Both are valid outcomes of
+    // the same 100-attempt loop — assert the invariant that holds either way.
+    if (seated < 12) {
+      expect(result.warnings?.some(w => w.includes('Could not create a RED day'))).toBe(true);
+    }
+
+    // The critical proof this isn't generatePartialSchedule()'s relaxed
+    // fallback: every show is still fully cast with 8 unique performers,
+    // regardless of how many RED days got seated.
+    for (const show of shows.filter(s => s.status === 'show')) {
+      const stage = result.assignments.filter(a => a.showId === show.id && a.role !== 'OFF');
+      expect(stage.length).toBe(8);
+      expect(new Set(stage.map(a => a.performer)).size).toBe(8);
+    }
+  });
+
+  it('never reorders the caller\'s shows array (detectCompanyRedDate sorts a copy)', async () => {
+    // Deliberately out of date order: the earlier-dated day off (Tue) is last.
+    const shows: Show[] = [
+      { id: "fri", date: "2024-01-05", time: "00:00", callTime: "00:00", status: "dayoff" },
+      { id: "wed", date: "2024-01-03", time: "19:30", callTime: "18:00", status: "show" },
+      { id: "tue", date: "2024-01-02", time: "00:00", callTime: "00:00", status: "dayoff", isCompanyRedDay: true },
+    ];
+    const originalOrder = shows.map(s => s.id);
+    const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS);
+    await algorithm.autoGenerate();
+    expect(shows.map(s => s.id)).toEqual(originalOrder);
+  });
+
+  it('more than one day off flagged (hand-edited data): uses the earliest and warns rather than trusting it', async () => {
+    const shows: Show[] = [
+      { id: "tue", date: "2024-01-02", time: "00:00", callTime: "00:00", status: "dayoff", isCompanyRedDay: true },
+      { id: "wed", date: "2024-01-03", time: "19:30", callTime: "18:00", status: "show" },
+      { id: "thu", date: "2024-01-04", time: "19:30", callTime: "18:00", status: "show" },
+      { id: "fri", date: "2024-01-05", time: "00:00", callTime: "00:00", status: "dayoff", isCompanyRedDay: true },
+      { id: "sat_mat", date: "2024-01-06", time: "14:00", callTime: "12:30", status: "show" },
+      { id: "sat_eve", date: "2024-01-06", time: "19:30", callTime: "18:00", status: "show" },
+      { id: "sun_mat", date: "2024-01-07", time: "14:00", callTime: "12:30", status: "show" },
+      { id: "sun_eve", date: "2024-01-07", time: "19:30", callTime: "18:00", status: "show" },
+    ];
+    const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS);
+    const result = await algorithm.autoGenerate();
+    expect(result.success).toBe(true);
+
+    for (const member of CAST_MEMBERS) {
+      expect([...redDatesFor(result.assignments, shows, member.name)]).toEqual(["2024-01-02"]);
+    }
+    expect(result.warnings?.some(w => w.includes('More than one day off is flagged'))).toBe(true);
   });
 });

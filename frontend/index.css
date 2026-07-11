@@ -637,6 +637,17 @@
 }
 .day-editor-action:hover { border-color: var(--accent); color: var(--accent); }
 .day-editor-note { font: 400 11px/1.4 var(--font-sans, inherit); color: var(--muted); margin: 0; }
+.day-editor-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg);
+  cursor: pointer;
+}
+.day-editor-checkbox input { width: 14px; height: 14px; accent-color: var(--red); cursor: pointer; }
 .day-editor-warn { font: 500 11px/1.4 var(--font-sans, inherit); color: var(--danger, #b3242b); margin: 0; }
 .grid-table th, .grid-table td { border: 1px solid var(--border); }
 .grid-table thead th {
@@ -762,6 +773,7 @@
 .special-box svg { width: 15px; height: 15px; flex-shrink: 0; }
 .special-travel { background: var(--amber-soft); color: var(--amber-fg); border: 1px solid var(--amber-line); }
 .special-off { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.special-red { background: var(--red-soft); color: var(--red-fg); border: 1px solid var(--red-line); }
 
 /* OFF rows */
 .off-label { background: var(--surface-2); font: 600 11px/1 var(--font-mono); color: var(--muted); letter-spacing: 0.1em; padding: 0 14px; text-align: left; width: 132px; position: sticky; left: 0; z-index: 2; }

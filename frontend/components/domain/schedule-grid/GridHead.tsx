@@ -21,6 +21,7 @@ interface GridHeadProps {
   onAddShowToDate: (date: string) => void;
   onRestoreDate: (date: string) => void;
   onSetDestination: (travelShowId: string, city: string) => void;
+  onSetCompanyRedDay: (showId: string, on: boolean) => void;
 }
 
 const columnKey = (column: Column) => column.show?.id ?? `empty-${column.date}`;
@@ -36,6 +37,7 @@ export function GridHead({
   onAddShowToDate,
   onRestoreDate,
   onSetDestination,
+  onSetCompanyRedDay,
 }: GridHeadProps) {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const anchors = useRef(new Map<string, HTMLElement>());
@@ -73,6 +75,14 @@ export function GridHead({
 
   const showsOnDate = (date: string) =>
     columns.filter((c) => c.date === date && c.show?.status === "show").length;
+
+  // The other day off currently holding the company RED day, if any — so the
+  // editor can say "Wednesday holds it; ticking moves it here" instead of just
+  // unchecking the box with no explanation.
+  const companyRedColumn = columns.find((c) => c.show?.isCompanyRedDay && c.show.id !== openColumn?.show?.id);
+  const otherCompanyRedDayLabel = companyRedColumn
+    ? `${dowShort(companyRedColumn.date)} ${shortDate(companyRedColumn.date, dateStyle)}`
+    : null;
 
   return (
     <thead>
@@ -185,6 +195,8 @@ export function GridHead({
           onAddShowToDate={onAddShowToDate}
           onRestoreDate={onRestoreDate}
           onSetDestination={onSetDestination}
+          onSetCompanyRedDay={onSetCompanyRedDay}
+          otherCompanyRedDayLabel={otherCompanyRedDayLabel}
         />
       ) : null}
     </thead>

@@ -23,6 +23,11 @@ export interface Show {
    * days after it — see `setDestination` in frontend/components/domain/week.ts.
    */
   location?: string;
+  /**
+   * This day off carries the whole company's RED day. At most one show in a
+   * schedule may set it, and only when status === "dayoff".
+   */
+  isCompanyRedDay?: boolean;
 }
 
 export interface Assignment {

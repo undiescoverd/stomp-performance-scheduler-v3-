@@ -155,6 +155,7 @@ export function ScheduleEditorScreen() {
           onAddShowToDate={editor.handleAddShowToDate}
           onRestoreDate={editor.handleRestoreDate}
           onSetDestination={editor.handleSetDestination}
+          onSetCompanyRedDay={editor.handleSetCompanyRedDay}
         />
       </div>
 

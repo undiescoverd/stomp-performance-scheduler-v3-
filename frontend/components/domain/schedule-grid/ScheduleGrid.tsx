@@ -23,6 +23,7 @@ interface ScheduleGridProps {
   onAddShowToDate: (date: string) => void;
   onRestoreDate: (date: string) => void;
   onSetDestination: (travelShowId: string, city: string) => void;
+  onSetCompanyRedDay: (showId: string, on: boolean) => void;
 }
 
 export function ScheduleGrid({
@@ -40,6 +41,7 @@ export function ScheduleGrid({
   onAddShowToDate,
   onRestoreDate,
   onSetDestination,
+  onSetCompanyRedDay,
 }: ScheduleGridProps) {
   const showShows = shows.filter((s) => s.status === "show");
   const assignedShowIds = new Set(assignments.filter((a) => a.role !== "OFF").map((a) => a.showId));
@@ -83,6 +85,7 @@ export function ScheduleGrid({
             onAddShowToDate={onAddShowToDate}
             onRestoreDate={onRestoreDate}
             onSetDestination={onSetDestination}
+            onSetCompanyRedDay={onSetCompanyRedDay}
           />
           <tbody>
             <tr className="grid-divider">
@@ -109,7 +112,12 @@ export function ScheduleGrid({
                     }
                     if (column.show.status !== "show") {
                       return rowIndex === 0 ? (
-                        <SpecialDayCell key={key} status={column.show.status} rowSpan={specialRowSpan} />
+                        <SpecialDayCell
+                          key={key}
+                          status={column.show.status}
+                          rowSpan={specialRowSpan}
+                          isCompanyRedDay={column.show.isCompanyRedDay}
+                        />
                       ) : null;
                     }
 
