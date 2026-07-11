@@ -118,3 +118,10 @@ export function relTime(d: Date | string): string {
     return "";
   }
 }
+
+/** Sort any named list alphabetically by `name`, case-insensitively. Returns a
+ *  new array; the input is left untouched. */
+export function sortByName<T extends { name: string }>(items: T[], dir: "asc" | "desc" = "asc"): T[] {
+  const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return dir === "desc" ? sorted.reverse() : sorted;
+}

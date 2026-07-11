@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isoDate, dateRange, shortDate, splitLocation, fmtTime } from "./format";
+import { isoDate, dateRange, shortDate, splitLocation, fmtTime, sortByName } from "./format";
 import type { Show } from "~backend/scheduler/types";
 
 const show = (date: string | Date, time = "19:30"): Show =>
@@ -85,5 +85,27 @@ describe("fmtTime", () => {
   });
   it("renders a cleared time as TBC, never as blank", () => {
     expect(fmtTime("")).toBe("TBC");
+  });
+});
+
+describe("sortByName", () => {
+  const items = [{ name: "Sean" }, { name: "adam" }, { name: "Cade" }];
+
+  it("sorts ascending by default", () => {
+    expect(sortByName(items).map((i) => i.name)).toEqual(["adam", "Cade", "Sean"]);
+  });
+
+  it("sorts descending when asked", () => {
+    expect(sortByName(items, "desc").map((i) => i.name)).toEqual(["Sean", "Cade", "adam"]);
+  });
+
+  it("does not mutate the input array", () => {
+    const original = [...items];
+    sortByName(items, "desc");
+    expect(items).toEqual(original);
+  });
+
+  it("returns an empty array unchanged", () => {
+    expect(sortByName([])).toEqual([]);
   });
 });
