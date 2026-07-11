@@ -28,6 +28,7 @@ export function CastMemberDialog({ open, onOpenChange, initial, roles, onSubmit,
   const [name, setName] = useState("");
   const [selected, setSelected] = useState<Set<Role>>(new Set());
   const [gender, setGender] = useState<"male" | "female">("male");
+  const [status, setStatus] = useState<"active" | "archived">("active");
 
   // Reset the form whenever the dialog opens (for add) or target changes (edit).
   useEffect(() => {
@@ -35,6 +36,7 @@ export function CastMemberDialog({ open, onOpenChange, initial, roles, onSubmit,
     setName(initial?.name ?? "");
     setSelected(new Set(initial?.eligibleRoles ?? []));
     setGender(initial?.gender ?? "male");
+    setStatus(initial?.status ?? "active");
   }, [open, initial]);
 
   const canSave = name.trim().length > 0 && selected.size > 0;
@@ -50,7 +52,7 @@ export function CastMemberDialog({ open, onOpenChange, initial, roles, onSubmit,
 
   const submit = () => {
     if (!canSave) return;
-    onSubmit({ name: name.trim(), eligibleRoles: [...selected], gender });
+    onSubmit({ name: name.trim(), eligibleRoles: [...selected], gender, status });
   };
 
   return (
@@ -103,6 +105,23 @@ export function CastMemberDialog({ open, onOpenChange, initial, roles, onSubmit,
               </label>
               <label className="row" style={{ gap: 8, cursor: "pointer" }}>
                 <RadioGroupItem value="female" /> Female
+              </label>
+            </RadioGroup>
+          </div>
+
+          <div className="stack" style={{ gap: 8 }}>
+            <Label>Status</Label>
+            <RadioGroup
+              value={status}
+              onValueChange={(v) => setStatus(v as "active" | "archived")}
+              className="row"
+              style={{ gap: 20 }}
+            >
+              <label className="row" style={{ gap: 8, cursor: "pointer" }}>
+                <RadioGroupItem value="active" /> Active
+              </label>
+              <label className="row" style={{ gap: 8, cursor: "pointer" }}>
+                <RadioGroupItem value="archived" /> Archived
               </label>
             </RadioGroup>
           </div>

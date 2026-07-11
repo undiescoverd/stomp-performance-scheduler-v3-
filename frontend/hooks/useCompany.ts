@@ -7,6 +7,7 @@ export interface MemberInput {
   name: string;
   eligibleRoles: Role[];
   gender: "male" | "female";
+  status: "active" | "archived";
 }
 
 export function useCompany() {
@@ -42,7 +43,12 @@ export function useCompany() {
 
   const addMember = useMutation({
     mutationFn: (input: MemberInput) =>
-      backend.scheduler.addMember({ name: input.name, eligibleRoles: input.eligibleRoles, gender: input.gender }),
+      backend.scheduler.addMember({
+        name: input.name,
+        eligibleRoles: input.eligibleRoles,
+        gender: input.gender,
+        status: input.status,
+      }),
     onSuccess: () => {
       invalidate();
       toast({ title: "Cast member added" });
@@ -52,7 +58,13 @@ export function useCompany() {
 
   const updateMember = useMutation({
     mutationFn: (input: MemberInput & { id: string }) =>
-      backend.scheduler.updateMember({ id: input.id, name: input.name, eligibleRoles: input.eligibleRoles, gender: input.gender }),
+      backend.scheduler.updateMember({
+        id: input.id,
+        name: input.name,
+        eligibleRoles: input.eligibleRoles,
+        gender: input.gender,
+        status: input.status,
+      }),
     onSuccess: () => {
       invalidate();
       toast({ title: "Cast member updated" });

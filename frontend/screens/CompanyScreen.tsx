@@ -47,7 +47,7 @@ export function CompanyScreen() {
     <>
       <PageHeader
         eyebrow="Cast & Roles"
-        title="Company"
+        title="Cast"
         lead="Performers across the STOMP performance roles. Every performer carries exactly one RED day per week."
         actions={
           <button className="btn btn-primary btn-sm" onClick={openAdd}>
@@ -71,7 +71,7 @@ export function CompanyScreen() {
 
       <section className="mt-32">
         <div className="section-head">
-          <h2 className="h1">Performers</h2>
+          <h2 className="h1">Cast</h2>
           <div className="kicker">Edit eligibility, archive, or remove</div>
         </div>
 
@@ -86,7 +86,7 @@ export function CompanyScreen() {
           </div>
         ) : currentCompany.length === 0 ? (
           <div className="card empty">
-            <div className="h2">No performers yet</div>
+            <div className="h2">No cast yet</div>
             <button className="btn btn-primary btn-sm" onClick={openAdd}>
               <Plus /> Add the first cast member
             </button>

@@ -31,7 +31,7 @@ const NAV_ITEMS: NavItem[] = [
     matchPrefix: "/tours",
     enabled: FEATURE_FLAGS.MULTI_COUNTRY_TOURS,
   },
-  { id: "company", label: "Company", to: "/company", icon: <Users />, matchPrefix: "/company" },
+  { id: "company", label: "Cast", to: "/company", icon: <Users />, matchPrefix: "/company" },
 ];
 
 function initials(name: string): string {
