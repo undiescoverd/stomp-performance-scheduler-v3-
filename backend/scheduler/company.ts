@@ -84,14 +84,18 @@ function mapRow(row: CompanyRow): CompanyMember {
   };
 }
 
-// Seed the 12 default cast members exactly once. Uses deterministic ids
-// (member_seed_0..11) with ON CONFLICT DO NOTHING so concurrent cold starts
-// race safely and, once seeded, user edits/additions persist untouched.
+// Seed the 12 default cast members exactly once. Gated on a durable marker
+// row (company_seed_marker), not a COUNT(*) check — a count-based check would
+// re-seed the defaults whenever company_members is empty, resurrecting a
+// roster a user intentionally deleted down to zero. Deterministic ids
+// (member_seed_0..11) + ON CONFLICT DO NOTHING keep concurrent cold starts
+// race-safe and let a partial seed (crash mid-loop, marker never written)
+// heal itself on the next call instead of getting stuck half-seeded.
 async function ensureSeeded(): Promise<void> {
-  const countRow = await scheduleDB.queryRow<{ count: number }>`
-    SELECT COUNT(*)::int AS count FROM company_members
+  const marker = await scheduleDB.queryRow<{ id: number }>`
+    SELECT id FROM company_seed_marker WHERE id = 1
   `;
-  if (countRow && countRow.count > 0) {
+  if (marker) {
     return;
   }
 
@@ -111,6 +115,12 @@ async function ensureSeeded(): Promise<void> {
       ON CONFLICT (id) DO NOTHING
     `;
   }
+
+  // Recorded only after every insert above succeeds — see comment above.
+  await scheduleDB.exec`
+    INSERT INTO company_seed_marker (id) VALUES (1)
+    ON CONFLICT (id) DO NOTHING
+  `;
 }
 
 // Retrieves the current company and archive.

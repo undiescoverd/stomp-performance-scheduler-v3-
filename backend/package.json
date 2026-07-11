@@ -4,7 +4,8 @@
   "type": "module",
   "packageManager": "bun",
   "scripts": {
-    "build": "cd ../frontend && rm -rf dist && bun install && vite build --outDir=../backend/frontend/dist --emptyOutDir"
+    "build": "cd ../frontend && rm -rf dist && bun install && vite build --outDir=../backend/frontend/dist --emptyOutDir",
+    "test": "vitest run"
   },
   "dependencies": {
     "@types/bcryptjs": "^3.0.0",
