@@ -75,14 +75,6 @@ export function weekLabel(week: string): string {
   return /week/i.test(w) ? w : `Week ${w}`;
 }
 
-/** Deterministic, in-palette avatar background for a performer name. White text
- *  sits on it legibly in both light and dark. */
-export function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return `oklch(56% 0.16 ${h})`;
-}
-
 /** 24h "HH:MM" -> "7:30 PM"; passes through "TBC"/empty. */
 export function fmtTime(t: string): string {
   if (!t || t === "TBC") return "TBC";
@@ -125,4 +117,11 @@ export function relTime(d: Date | string): string {
   } catch {
     return "";
   }
+}
+
+/** Sort any named list alphabetically by `name`, case-insensitively. Returns a
+ *  new array; the input is left untouched. */
+export function sortByName<T extends { name: string }>(items: T[], dir: "asc" | "desc" = "asc"): T[] {
+  const sorted = [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  return dir === "desc" ? sorted.reverse() : sorted;
 }
