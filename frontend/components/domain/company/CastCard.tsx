@@ -1,6 +1,5 @@
 import { Pencil, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import type { CompanyMember } from "~backend/scheduler/company";
-import { avatarColor } from "../format";
 
 interface CastCardProps {
   member: CompanyMember;
@@ -16,7 +15,7 @@ export function CastCard({ member, onEdit, onArchiveToggle, onDelete }: CastCard
   return (
     <div className="cast-card">
       <div className="cast-top">
-        <div className="cast-avatar" style={{ background: avatarColor(member.name) }}>{initials}</div>
+        <div className="cast-avatar">{initials}</div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="cast-name">{member.name}</div>
           <div className={`cast-status${archived ? " archive" : ""}`}>{archived ? "Archived" : "Active"}</div>

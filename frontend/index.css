@@ -820,8 +820,9 @@
 .cast-avatar {
   width: 44px; height: 44px; border-radius: 12px;
   display: grid; place-items: center;
-  font: 700 15px/1 var(--font-display); color: #fff;
+  font: 700 15px/1 var(--font-display); color: var(--accent-fg);
   letter-spacing: -0.01em; flex-shrink: 0;
+  background: var(--accent);
 }
 .cast-name { font: 600 16px/1.1 var(--font-display); letter-spacing: -0.01em; }
 .cast-status { font: 500 11px/1 var(--font-mono); color: var(--green); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 5px; }

@@ -75,14 +75,6 @@ export function weekLabel(week: string): string {
   return /week/i.test(w) ? w : `Week ${w}`;
 }
 
-/** Deterministic, in-palette avatar background for a performer name. White text
- *  sits on it legibly in both light and dark. */
-export function avatarColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return `oklch(56% 0.16 ${h})`;
-}
-
 /** 24h "HH:MM" -> "7:30 PM"; passes through "TBC"/empty. */
 export function fmtTime(t: string): string {
   if (!t || t === "TBC") return "TBC";
