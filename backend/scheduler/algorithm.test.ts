@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SchedulingAlgorithm } from './algorithm';
-import { Show, CastMember, Role } from './types';
+import { Show, CastMember, Role, Assignment } from './types';
 
 describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
   const defaultCastMembers: CastMember[] = [
@@ -790,6 +790,65 @@ describe('SchedulingAlgorithm - Critical Bug Fixes', () => {
         expect(format("2024-01-04", unknown)).not.toContain("Invalid Date");
       }
       expect(format("2024-01-04", "TBC")).toContain("TBC");
+    });
+  });
+
+  describe('Gap-fill auto-generate (preserve manual picks)', () => {
+    it('fills only empty slots, preserving a manual stage pick and a manual RED day', async () => {
+      // Manual picks placed by the user before pressing Auto-Generate:
+      //  - CADE locked into "Who" on Wednesday (a stage pick)
+      //  - SEAN given a manual RED day on Tuesday (OFF all day)
+      const existing: Assignment[] = [
+        { showId: "wed", role: "Who", performer: "CADE", isRedDay: false },
+        { showId: "tue", role: "OFF", performer: "SEAN", isRedDay: true },
+      ];
+
+      // Run several times: gap-fill must hold on every attempt, not just by luck.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const algorithm = new SchedulingAlgorithm(weekShows, defaultCastMembers, existing);
+        const result = await algorithm.autoGenerate();
+
+        expect(result.success).toBe(true);
+
+        // 1. The locked stage pick survives unchanged.
+        const wedWho = result.assignments.find(a => a.showId === "wed" && a.role === "Who");
+        expect(wedWho?.performer).toBe("CADE");
+
+        // 2. Every active show is fully cast (all 8 stage roles).
+        for (const show of weekShows) {
+          const roles = new Set(
+            result.assignments.filter(a => a.showId === show.id && a.role !== "OFF").map(a => a.role)
+          );
+          expect(roles.size).toBe(allRoles.length);
+        }
+
+        // 3. SEAN's manual RED day is honoured: no stage role on Tuesday, and a
+        //    RED marker on the Tuesday show.
+        const seanTueStage = result.assignments.filter(
+          a => a.showId === "tue" && a.role !== "OFF" && a.performer === "SEAN"
+        );
+        expect(seanTueStage.length).toBe(0);
+        const seanTueRed = result.assignments.find(
+          a => a.showId === "tue" && a.role === "OFF" && a.performer === "SEAN" && a.isRedDay === true
+        );
+        expect(seanTueRed).toBeDefined();
+
+        // 4. Every performer still ends with exactly one RED day (fairness rule).
+        for (const member of defaultCastMembers) {
+          const redDates = new Set(
+            result.assignments
+              .filter(a => a.role === "OFF" && a.isRedDay === true && a.performer === member.name)
+              .map(a => weekShows.find(s => s.id === a.showId)!.date)
+          );
+          expect(redDates.size).toBe(1);
+        }
+
+        // 5. SEAN's single RED day is specifically Tuesday (the manual choice).
+        const seanRedDate = result.assignments
+          .filter(a => a.role === "OFF" && a.isRedDay === true && a.performer === "SEAN")
+          .map(a => weekShows.find(s => s.id === a.showId)!.date)[0];
+        expect(seanRedDate).toBe("2024-01-02");
+      }
     });
   });
 });

@@ -115,7 +115,8 @@ export function useScheduleEditor(id?: string) {
 
   // Auto-generate mutation
   const autoGenerateMutation = useMutation({
-    mutationFn: (shows: Show[]) => backend.scheduler.autoGenerate({ shows }),
+    mutationFn: (data: { shows: Show[]; existingAssignments: Assignment[] }) =>
+      backend.scheduler.autoGenerate(data),
     gcTime: 0, // Don't cache auto-generate results
     retry: false, // Don't retry auto-generate failures
     onSuccess: (response) => {
@@ -351,7 +352,11 @@ export function useScheduleEditor(id?: string) {
     snapshot();
     setIsGenerating(true);
     try {
-      await autoGenerateMutation.mutateAsync(shows);
+      // Pass the current grid so Auto-Generate fills only empty slots and keeps
+      // the user's manual picks (and any toggled RED day). The backend returns
+      // the full merged set, so setAssignments(response.assignments) and the
+      // pre-generate Undo snapshot both remain correct.
+      await autoGenerateMutation.mutateAsync({ shows, existingAssignments: assignments });
     } catch (error) {
       // Error handling is done in mutation onError
     }
