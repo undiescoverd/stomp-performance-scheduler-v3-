@@ -15,6 +15,39 @@ This is STOMP Performance Scheduler - a full-stack application for managing thea
 
 ## Development Commands
 
+### Running Servers (tmux — always use this, never foreground/nohup)
+
+Always start and restart the dev servers inside a dedicated tmux session named
+`stomp`, one window per server. Do not run `encore run` or `bun run dev` directly
+in the foreground of a Claude Code shell — those processes get orphaned when the
+shell session ends (leaked `encore run` / built `combined/main.mjs` processes have
+had to be manually killed before). tmux keeps them alive independently and lets
+their output be inspected at any time.
+
+To (re)start both servers from scratch:
+```bash
+tmux kill-session -t stomp 2>/dev/null
+tmux new-session -d -s stomp -n backend -c /Users/ianvincent/workspace/stomp-performance-scheduler-v3/backend
+tmux send-keys -t stomp:backend "encore run" C-m
+tmux new-window -t stomp -n frontend -c /Users/ianvincent/workspace/stomp-performance-scheduler-v3/frontend
+tmux send-keys -t stomp:frontend "bun run dev" C-m
+```
+
+Before restarting, check for and kill any stray non-tmux server processes first
+(`ps aux | grep -iE "encore run|combined/main.mjs"`) — orphaned runs from prior
+foreground sessions will otherwise keep holding the ports.
+
+Useful commands:
+```bash
+tmux list-windows -t stomp                   # confirm both windows are up
+tmux capture-pane -t stomp:backend -p | tail -30   # check backend output/errors
+tmux capture-pane -t stomp:frontend -p | tail -30  # check frontend output/errors
+tmux attach -t stomp                         # attach interactively (Ctrl-b d to detach)
+```
+
+Backend: http://127.0.0.1:4000 · Frontend: http://localhost:5173 (Vite binds to
+`[::1]`, so use `localhost` rather than `127.0.0.1` when curling it).
+
 ### Backend Development
 ```bash
 cd backend
