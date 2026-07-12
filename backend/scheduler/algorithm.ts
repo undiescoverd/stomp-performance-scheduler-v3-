@@ -226,16 +226,18 @@ export class SchedulingAlgorithm {
     return performerDaysOff;
   }
 
-  private detectCompanyDayOff(): string | null {
-    const dayOffShows = this.shows.filter(s => s.status === 'dayoff');
-    if (dayOffShows.length === 0) return null;
-    
-    // Sort by date and return the earliest
-    const sortedDayOffs = dayOffShows.sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-    
-    return sortedDayOffs[0].date;
+  // The one day off nominated to carry the whole company's RED day, or null
+  // when none is — the v3.1 fairness path then gives each performer their
+  // own. Filters on the isCompanyRedDay flag, not merely status === 'dayoff':
+  // a week can hold several days off (a loading day after a mid-week travel
+  // day), and only one may be marked. Maps to plain date strings before
+  // sorting so this never mutates this.shows or the array `filter` returned.
+  private detectCompanyRedDate(): string | null {
+    const flagged = this.shows
+      .filter(s => s.status === 'dayoff' && s.isCompanyRedDay === true)
+      .map(s => s.date)
+      .sort();
+    return flagged.length > 0 ? flagged[0] : null;
   }
 
   private findConsecutiveDoubleDays(): Array<{startDate: string, endDate: string, showIds: string[]}> {
@@ -335,7 +337,7 @@ export class SchedulingAlgorithm {
     const show = this.shows.find(s => s.id === showId);
     if (!show || show.status !== 'show') return [];
     
-    const companyDayOff = this.detectCompanyDayOff();
+    const companyRedDate = this.detectCompanyRedDate();
     const consecutiveDoubles = this.findConsecutiveDoubleDays();
     
     // Get all performers assigned to this show
@@ -420,7 +422,7 @@ export class SchedulingAlgorithm {
     // Sort by priority
     performerStats.sort((a, b) => {
       // Priority 1: Avoid giving someone multiple full days off
-      if (companyDayOff) {
+      if (companyRedDate) {
         // If there's a company day off, everyone already has 1 day
         // Strongly avoid giving anyone a second day off
         if (a.fullDaysOff !== b.fullDaysOff) {
@@ -512,13 +514,13 @@ export class SchedulingAlgorithm {
     const warnings: string[] = [];
     const performerDaysOff = this.getPerformerDaysOff(assignments);
     const performerDayOffCounts: Record<string, number> = {};
-    const companyDayOff = this.detectCompanyDayOff();
-    
+    const companyRedDate = this.detectCompanyRedDate();
+
     for (const [performer, daysOff] of Object.entries(performerDaysOff)) {
       performerDayOffCounts[performer] = daysOff.length;
-      
+
       // Add company day off if it exists
-      if (companyDayOff && !daysOff.includes(companyDayOff)) {
+      if (companyRedDate && !daysOff.includes(companyRedDate)) {
         performerDayOffCounts[performer]++;
       }
       
@@ -734,10 +736,18 @@ export class SchedulingAlgorithm {
       // Clear existing assignments
       this.clearAllAssignments();
 
+      // The closest critically-clean attempt seen so far when none manages to
+      // seat every individual RED day — fewest RED-day warnings wins. A week
+      // that structurally can't seat all 12 (e.g. too few show dates) should
+      // ship this, with its warnings intact, rather than fall through to
+      // generatePartialSchedule()'s relaxed constraints, which would silently
+      // under-cast shows to hide the same failure.
+      let bestAttempt: { assignments: Assignment[]; warnings: string[]; redDayWarningCount: number; dayOffStats: Record<string, number> } | null = null;
+
       // Try multiple attempts to find a valid assignment with corrected constraints
       for (let attempt = 0; attempt < 100; attempt++) {
         this.clearAllAssignments();
-        
+
         if (this.generateScheduleAttempt()) {
           const assignments = this.convertToAssignments();
           const validation = this.validateSchedule(assignments);
@@ -748,10 +758,32 @@ export class SchedulingAlgorithm {
 
             // RE-VALIDATE: RED-day assignment can vacate stage roles. If the
             // refill left any show under-filled (or otherwise broke a critical
-            // rule), or a performer could not be given a RED day at all, do NOT
-            // ship this attempt — fall through to the next one.
+            // rule), do NOT ship this attempt — fall through to the next one.
             const postValidation = this.validateSchedule(finalAssignments);
-            if (this.hasCriticalErrors(postValidation.items) || this.lastRedDayWarnings.length > 0) {
+            if (this.hasCriticalErrors(postValidation.items)) {
+              continue;
+            }
+
+            if (this.lastRedDayWarnings.length > 0) {
+              // Critically clean, but a performer could not be given a RED
+              // day. Remember it as the fallback if it's the best one yet,
+              // and keep trying for a fully clean attempt. Compared on
+              // redDayWarningCount alone (not the combined warnings.length),
+              // since mixing in fairness-warning count would let an attempt
+              // with strictly more unseated RED days win on a lucky fairness
+              // tally — the one metric this fallback exists to minimize.
+              if (!bestAttempt || this.lastRedDayWarnings.length < bestAttempt.redDayWarningCount) {
+                const { warnings, performerDayOffCounts } = this.validateDayOffFairness(finalAssignments);
+                const fallbackWarnings = this.fairnessFallbackCount > 0
+                  ? [`Fair OFF-selection fell back to random for ${this.fairnessFallbackCount} show(s) — day-off fairness may be reduced`]
+                  : [];
+                bestAttempt = {
+                  assignments: finalAssignments,
+                  warnings: [...this.lastRedDayWarnings, ...fallbackWarnings, ...warnings],
+                  redDayWarningCount: this.lastRedDayWarnings.length,
+                  dayOffStats: performerDayOffCounts
+                };
+              }
               continue;
             }
 
@@ -771,6 +803,17 @@ export class SchedulingAlgorithm {
             };
           }
         }
+      }
+
+      if (bestAttempt) {
+        return {
+          success: true,
+          assignments: bestAttempt.assignments,
+          warnings: bestAttempt.warnings,
+          dayOffStats: bestAttempt.dayOffStats,
+          generationId: Date.now().toString(36) + Math.random().toString(36).substring(2),
+          generatedAt: new Date().toISOString()
+        };
       }
 
       // If we couldn't find a complete solution, try a partial one with very relaxed constraints
@@ -1027,23 +1070,34 @@ export class SchedulingAlgorithm {
     };
   }
 
-  // Assign RED days to OFF performers with company day off handling
+  // Assign RED days to OFF performers, honoring a nominated company RED day.
   private assignRedDays(assignments: Assignment[]): Assignment[] {
     this.lastRedDayWarnings = [];
-    const companyDayOff = this.detectCompanyDayOff();
+
+    // More than one day off flagged is only reachable via hand-edited JSON —
+    // the frontend enforces at-most-one. Fall back to the earliest and warn
+    // rather than silently picking, so a bad import surfaces instead of
+    // hiding a scheduling mistake.
+    const flaggedCount = this.shows.filter(s => s.status === 'dayoff' && s.isCompanyRedDay === true).length;
+    const companyRedDate = this.detectCompanyRedDate();
+    if (flaggedCount > 1) {
+      this.lastRedDayWarnings.push(
+        `More than one day off is flagged as the company RED day; using the earliest (${companyRedDate})`
+      );
+    }
     const allPerformers = this.castMembers.map(m => m.name);
-    
-    // If there's a company day off, handle it differently
-    if (companyDayOff) {
-      const companyDayOffShowIds = this.shows
-        .filter(s => s.date === companyDayOff && s.status === 'dayoff')
+
+    // If a day off is nominated as the company RED day, handle it differently
+    if (companyRedDate) {
+      const companyRedShowIds = this.shows
+        .filter(s => s.date === companyRedDate && s.status === 'dayoff')
         .map(s => s.id);
-      
-      // Mark all performers as RED on the company day off
+
+      // Mark all performers as RED on the company RED day
       const finalAssignments: Assignment[] = [...assignments];
-      
-      // Add RED day assignments for company day off
-      for (const showId of companyDayOffShowIds) {
+
+      // Add RED day assignments for the company RED day
+      for (const showId of companyRedShowIds) {
         for (const performer of allPerformers) {
           finalAssignments.push({
             showId: showId,
@@ -1053,16 +1107,16 @@ export class SchedulingAlgorithm {
           });
         }
       }
-      
+
       // All other OFF assignments are not RED
       return finalAssignments.map(a => {
-        if (a.role === 'OFF' && !companyDayOffShowIds.includes(a.showId)) {
+        if (a.role === 'OFF' && !companyRedShowIds.includes(a.showId)) {
           return { ...a, isRedDay: false };
         }
         return a;
       });
     }
-    
+
     // NEW LOGIC: Ensure everyone gets exactly one RED day
     const showsByDate: Record<string, Show[]> = {};
     this.shows.filter(s => s.status === 'show').forEach(show => {

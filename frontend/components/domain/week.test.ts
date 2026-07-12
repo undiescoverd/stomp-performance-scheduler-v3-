@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   addDaysIso,
   addShowToDate,
+  applyShowStatus,
   citySegments,
   columnsForWeek,
   getDefaultShowTimes,
@@ -10,6 +11,7 @@ import {
   nextShow,
   resetShowTimes,
   restoreDate,
+  setCompanyRedDay,
   setDestination,
   showsOnDate,
   sortShows,
@@ -464,6 +466,64 @@ describe("setDestination", () => {
   it("ignores a show id that is not a travel day", () => {
     const week = splitWeek();
     expect(setDestination(week, week[1].id, "Nowhere")).toBe(week);
+  });
+});
+
+describe("applyShowStatus", () => {
+  it("auto-nominates the week's first day off as the company RED day", () => {
+    const week = standardWeek();
+    const out = applyShowStatus(week, week[1].id, "dayoff"); // Wed -> dayoff
+    expect(out.find((s) => s.id === week[1].id)!.isCompanyRedDay).toBe(true);
+  });
+
+  it("leaves a second day off unmarked once one is already nominated", () => {
+    let week = applyShowStatus(standardWeek(), standardWeek()[1].id, "dayoff"); // Wed
+    week = applyShowStatus(week, week[2].id, "dayoff"); // Thu, second dayoff
+    expect(week.find((s) => s.id === week[1].id)!.isCompanyRedDay).toBe(true);
+    expect(week.find((s) => s.id === week[2].id)!.isCompanyRedDay).toBeFalsy();
+  });
+
+  it("drops the flag when a nominated day off leaves dayoff status, and it never resurrects", () => {
+    let week = applyShowStatus(standardWeek(), standardWeek()[1].id, "dayoff"); // Wed, auto-nominated
+    week = applyShowStatus(week, week[1].id, "show"); // Wed becomes a show again
+    expect(week.find((s) => s.id === week[1].id)!.isCompanyRedDay).toBeFalsy();
+
+    // Sending it back to dayoff does not resurrect the old nomination — it
+    // re-evaluates as a fresh dayoff (auto-marks again only because nothing
+    // else in the week currently holds the flag).
+    week = applyShowStatus(week, week[1].id, "dayoff");
+    expect(week.find((s) => s.id === week[1].id)!.isCompanyRedDay).toBe(true);
+  });
+
+  it("does not touch isCompanyRedDay when the new status is not dayoff and none is set", () => {
+    const week = applyShowStatus(standardWeek(), standardWeek()[0].id, "travel");
+    expect(week.find((s) => s.id === week[0].id)!.isCompanyRedDay).toBeFalsy();
+  });
+});
+
+describe("setCompanyRedDay", () => {
+  const twoDaysOffWeek = (): Show[] => [
+    { ...show("2025-07-15", "00:00", "00:00", "dayoff"), isCompanyRedDay: true }, // Tue, already nominated
+    show("2025-07-16", "20:00"), // Wed
+    { ...show("2025-07-17", "00:00", "00:00", "dayoff") }, // Thu
+  ];
+
+  it("nominating one day off clears any other — at most one at a time", () => {
+    const week = twoDaysOffWeek();
+    const out = setCompanyRedDay(week, week[2].id, true); // nominate Thu
+    expect(out.find((s) => s.id === week[0].id)!.isCompanyRedDay).toBe(false);
+    expect(out.find((s) => s.id === week[2].id)!.isCompanyRedDay).toBe(true);
+  });
+
+  it("un-nominating leaves no day off flagged", () => {
+    const week = twoDaysOffWeek();
+    const out = setCompanyRedDay(week, week[0].id, false);
+    expect(out.some((s) => s.isCompanyRedDay)).toBe(false);
+  });
+
+  it("ignores a show id that is not a day off, and doesn't clear an existing nomination as a side effect", () => {
+    const week = twoDaysOffWeek();
+    expect(setCompanyRedDay(week, week[1].id, true)).toBe(week); // Wed is a show day
   });
 });
 

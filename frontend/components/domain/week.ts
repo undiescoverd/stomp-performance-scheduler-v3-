@@ -1,4 +1,4 @@
-import type { Show } from "~backend/scheduler/types";
+import type { Show, DayStatus } from "~backend/scheduler/types";
 import { isKnownTime } from "~backend/scheduler/time";
 import { isoDate } from "./format";
 
@@ -292,4 +292,39 @@ export function nextShow(baseline: Show[], current: Show[], today: Date = new Da
     .pop();
   const date = last ? addDaysIso(last, 1) : today.toISOString().slice(0, 10);
   return { date, status: "show", ...getDefaultShowTimes(date, showsOnDate(current, date).length) };
+}
+
+/**
+ * Apply a status change to one show, keeping the company RED day invariant:
+ * at most one day off carries it. The week's first day off auto-nominates —
+ * a normal single-dark-day week behaves exactly as it always has — a second
+ * one (a loading day, say) stays unmarked until the scheduler moves the tick
+ * onto it. Leaving dayoff status always drops the flag: it must never
+ * resurrect on a later change, and it is meaningless on a show or travel day.
+ */
+export function applyShowStatus(shows: Show[], showId: string, status: DayStatus): Show[] {
+  const alreadyHasCompanyRedDay = shows.some((s) => s.isCompanyRedDay);
+  return shows.map((show) => {
+    if (show.id !== showId) return show;
+    if (status === "dayoff") {
+      return { ...show, status, isCompanyRedDay: alreadyHasCompanyRedDay ? show.isCompanyRedDay : true };
+    }
+    const { isCompanyRedDay: _drop, ...rest } = show;
+    return { ...rest, status };
+  });
+}
+
+/**
+ * Nominate (or clear) a day off as the whole company's RED day. At most one
+ * may be set at a time: nominating one clears any other, so the checkbox
+ * behaves like a radio across the week. Unticking everything is valid — the
+ * v3.1 fairness path then places each performer's own RED day.
+ */
+export function setCompanyRedDay(shows: Show[], showId: string, on: boolean): Show[] {
+  const target = shows.find((s) => s.id === showId);
+  if (!target || target.status !== "dayoff") return shows;
+  return shows.map((show) => {
+    if (show.id === showId) return { ...show, isCompanyRedDay: on };
+    return show.status === "dayoff" && show.isCompanyRedDay ? { ...show, isCompanyRedDay: false } : show;
+  });
 }

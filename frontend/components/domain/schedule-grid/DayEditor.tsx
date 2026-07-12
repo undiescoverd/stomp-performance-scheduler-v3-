@@ -21,6 +21,9 @@ interface DayEditorProps {
   onAddShowToDate: (date: string) => void;
   onRestoreDate: (date: string) => void;
   onSetDestination: (travelShowId: string, city: string) => void;
+  onSetCompanyRedDay: (showId: string, on: boolean) => void;
+  /** The other day off currently holding the company RED day, if any. */
+  otherCompanyRedDayLabel: string | null;
 }
 
 const GUTTER = 8;
@@ -116,6 +119,8 @@ export function DayEditor({
   onAddShowToDate,
   onRestoreDate,
   onSetDestination,
+  onSetCompanyRedDay,
+  otherCompanyRedDayLabel,
 }: DayEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -219,7 +224,26 @@ export function DayEditor({
         </>
       ) : null}
 
-      {show?.status === "dayoff" ? <p className="day-editor-note">No shows. The company is dark.</p> : null}
+      {show?.status === "dayoff" ? (
+        <>
+          <p className="day-editor-note">No shows. The company is dark.</p>
+          <label className="day-editor-checkbox">
+            <input
+              type="checkbox"
+              checked={show.isCompanyRedDay === true}
+              onChange={(e) => onSetCompanyRedDay(show.id, e.target.checked)}
+            />
+            Company RED day
+          </label>
+          <p className="day-editor-note">
+            {show.isCompanyRedDay
+              ? "Counts as everyone's day off, so auto-generate won't place individual RED days elsewhere."
+              : otherCompanyRedDayLabel
+                ? `${otherCompanyRedDayLabel} currently holds the company RED day. Ticking this moves it here.`
+                : "At most one day off per week can carry it."}
+          </p>
+        </>
+      ) : null}
     </div>,
     document.body,
   );

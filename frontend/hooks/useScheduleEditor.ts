@@ -9,11 +9,13 @@ import { isoDate } from '@/components/domain/format';
 import {
   addDaysIso,
   addShowToDate,
+  applyShowStatus,
   dayDiffIso,
   nextMondayFrom,
   nextShow,
   resetShowTimes,
   restoreDate,
+  setCompanyRedDay,
   setDestination,
   sortShows,
   timeIsFree,
@@ -137,10 +139,21 @@ export function useScheduleEditor(id?: string) {
         });
 
         const maxShows = Math.max(...Array.from(performerShowCounts.values()));
+        // "RED day" also matches the "more than one day off flagged" warning,
+        // which is fine — that case is its own signal something needs fixing.
+        const redDayWarnings = (response.warnings ?? []).filter(w => w.includes('RED day'));
+        const hasCompanyRedDay = shows.some(s => s.isCompanyRedDay);
+
         if (maxShows > 6) {
           toast({
             title: "Warning",
             description: `Schedule generated but some performers may be overworked (${maxShows} shows max)`,
+            variant: "destructive"
+          });
+        } else if (redDayWarnings.length > 0 && !hasCompanyRedDay) {
+          toast({
+            title: "Some RED days couldn't be seated",
+            description: `${redDayWarnings.length} performer(s) didn't get an individual RED day this week. If the week has a day off, nominate it as the company RED day to guarantee everyone gets one.`,
             variant: "destructive"
           });
         } else {
@@ -444,15 +457,19 @@ export function useScheduleEditor(id?: string) {
 
   const handleShowStatusChange = (showId: string, status: DayStatus) => {
     snapshot();
-    setShows(prev => prev.map(show =>
-      show.id === showId ? { ...show, status } : show
-    ));
+    setShows(prev => applyShowStatus(prev, showId, status));
 
     // Clear assignments for this show if it's no longer a show day. Undo brings
     // them back, which is why no confirm() guards this.
     if (status !== 'show') {
       setAssignments(prev => prev.filter(a => a.showId !== showId));
     }
+  };
+
+  /** Nominate (or clear) a day off as the whole company's RED day. */
+  const handleSetCompanyRedDay = (showId: string, on: boolean) => {
+    snapshot();
+    setShows(prev => setCompanyRedDay(prev, showId, on));
   };
 
   const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -575,6 +592,7 @@ export function useScheduleEditor(id?: string) {
     handleToggleRedDay,
     handleToggleOverride,
     handleShowStatusChange,
+    handleSetCompanyRedDay,
     handleShowChange,
     handleAddShowToDate,
     handleRestoreDate,

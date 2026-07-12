@@ -29,7 +29,7 @@ describe('E2E Integration Tests', () => {
     { id: "travel1", date: "2024-10-18", time: "10:00", callTime: "09:00", status: "travel" },
     { id: "show4", date: "2024-10-19", time: "14:00", callTime: "12:00", status: "show" },
     { id: "show5", date: "2024-10-19", time: "19:00", callTime: "17:00", status: "show" },
-    { id: "dayoff1", date: "2024-10-20", time: "00:00", callTime: "00:00", status: "dayoff" },
+    { id: "dayoff1", date: "2024-10-20", time: "00:00", callTime: "00:00", status: "dayoff", isCompanyRedDay: true },
     { id: "show6", date: "2024-10-21", time: "16:00", callTime: "14:30", status: "show" }
   ];
 
@@ -630,7 +630,7 @@ describe('E2E Integration Tests', () => {
     it('should handle schedule with only non-show days', async () => {
       const nonShowDays: Show[] = [
         { id: "t1", date: "2024-10-15", time: "10:00", callTime: "09:00", status: "travel" },
-        { id: "d1", date: "2024-10-16", time: "00:00", callTime: "00:00", status: "dayoff" },
+        { id: "d1", date: "2024-10-16", time: "00:00", callTime: "00:00", status: "dayoff", isCompanyRedDay: true },
         { id: "t2", date: "2024-10-17", time: "14:00", callTime: "13:00", status: "travel" }
       ];
 
@@ -707,7 +707,7 @@ describe('E2E Integration Tests', () => {
       // algorithm is week-scoped by design; multi-week runs are created as
       // one schedule per week by the tours flow, never fed to it whole.)
       const heavyWeek: Show[] = [
-        { id: "mon_off", date: "2024-10-14", time: "00:00", callTime: "00:00", status: "dayoff" },
+        { id: "mon_off", date: "2024-10-14", time: "00:00", callTime: "00:00", status: "dayoff", isCompanyRedDay: true },
         { id: "hw_tue", date: "2024-10-15", time: "19:00", callTime: "18:00", status: "show" },
         { id: "hw_wed", date: "2024-10-16", time: "19:00", callTime: "18:00", status: "show" },
         { id: "hw_thu", date: "2024-10-17", time: "19:00", callTime: "18:00", status: "show" },
