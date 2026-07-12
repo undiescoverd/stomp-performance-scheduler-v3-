@@ -54,6 +54,13 @@ export interface LoginRequest {
   password: string;
 }
 
+// Google Sign-In request: the Google-signed ID token (JWT) obtained by the
+// frontend from Google Identity Services. Verified server-side against the
+// configured Client ID (audience) before establishing identity.
+export interface GoogleAuthRequest {
+  credential: string;
+}
+
 export interface AuthResponse {
   user: UserProfile;
   token: string;
@@ -71,6 +78,10 @@ export interface AuthContext {
 export interface AuthConfig {
   jwtSecret: string;
   tokenExpirationHours: number;
+  // Google OAuth Client ID (public value, used as the ID-token audience check).
+  // Empty when the GoogleClientID secret is not configured — Google sign-in stays
+  // disabled in that state rather than failing app boot.
+  googleClientId: string;
 }
 
 // Auth failures are raised with Encore's APIError (see auth/auth.ts) so they map to

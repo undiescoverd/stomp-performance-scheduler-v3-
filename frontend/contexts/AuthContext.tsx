@@ -47,6 +47,7 @@ interface LoginData {
 interface AuthContextValue extends AuthState {
   register: (data: RegisterData) => Promise<void>;
   login: (data: LoginData) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -118,6 +119,13 @@ const authAPI = {
     return apiCall('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  },
+
+  google: async (credential: string) => {
+    return apiCall('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
     });
   },
 
@@ -198,6 +206,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     },
   });
 
+  // Google sign-in mutation — mirrors loginMutation; the backend returns the same
+  // { user, token, expiresAt } shape, so the token authenticates both the raw
+  // apiCall path and the generated Encore client via localStorage.
+  const googleMutation = useMutation({
+    mutationFn: authAPI.google,
+    onSuccess: (data) => {
+      setStoredToken(data.token);
+      setAuthState(prev => ({
+        ...prev,
+        user: data.user,
+        token: data.token,
+        isAuthenticated: true,
+      }));
+      queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+    onError: (error) => {
+      console.error('Google login failed:', error);
+    },
+  });
+
   // Logout mutation
   const logoutMutation = useMutation({
     mutationFn: authAPI.logout,
@@ -260,6 +288,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     ...authState,
     register: registerMutation.mutateAsync,
     login: loginMutation.mutateAsync,
+    loginWithGoogle: googleMutation.mutateAsync,
     logout: logoutMutation.mutateAsync,
     refreshUser: async () => {
       await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
