@@ -9,6 +9,7 @@ import { getAuthData } from "encore.dev/internal/codegen/auth";
 import type { AuthData } from "./encore_auth";
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { OAuth2Client } from 'google-auth-library';
 import { scheduleDB } from '../scheduler/db';
 import {
   User,
@@ -17,7 +18,8 @@ import {
   JWTPayload,
   RegisterRequest,
   LoginRequest,
-  AuthResponse
+  AuthResponse,
+  GoogleAuthRequest
 } from './types';
 import { authConfig } from './config';
 
@@ -167,6 +169,13 @@ export const login = api<LoginRequest, LoginResponse>(
       throw APIError.permissionDenied("Account is disabled");
     }
 
+    // Google-only accounts have no local password (password_hash NULL). Reject the
+    // password login path here: without this guard, bcrypt.compare(pw, null) throws
+    // and returns a 500 instead of a clean "invalid credentials" 401.
+    if (!userRow.password_hash) {
+      throw APIError.unauthenticated("Invalid email or password");
+    }
+
     // Verify password
     const isPasswordValid = await verifyPassword(req.password, userRow.password_hash);
     if (!isPasswordValid) {
@@ -197,6 +206,144 @@ export const login = api<LoginRequest, LoginResponse>(
       user: userProfile,
       token,
       expiresAt
+    };
+  }
+);
+
+export interface GoogleAuthResponse {
+  user: UserProfile;
+  token: string;
+  expiresAt: Date;
+}
+
+// Reused across requests; the Client ID audience is passed per verifyIdToken call.
+const googleOAuthClient = new OAuth2Client();
+
+/**
+ * Sign in with Google.
+ *
+ * Verifies a Google-signed ID token (from Google Identity Services on the
+ * frontend), then establishes the same self-issued JWT + session identity as
+ * password login. Find-or-create: an existing account is matched first by stable
+ * Google identity (provider_user_id = sub), then auto-linked by verified email,
+ * otherwise a new password-less account is created. The resulting token/session
+ * are byte-for-byte the login path's, so the global authHandler needs no changes.
+ */
+export const googleAuth = api<GoogleAuthRequest, GoogleAuthResponse>(
+  { expose: true, method: "POST", path: "/auth/google", auth: false },
+  async (req) => {
+    if (!req.credential) {
+      throw APIError.invalidArgument("Google credential is required");
+    }
+
+    // Verify the ID token. The audience check against our Client ID is the security
+    // boundary. Any failure (bad signature, wrong audience, unconfigured Client ID,
+    // network error fetching Google certs) is funnelled to a clean 401 rather than a
+    // 500. When GoogleClientID is unset this rejects every request, keeping the
+    // public endpoint safe pre-credentials without an explicit feature gate.
+    let payload;
+    try {
+      const ticket = await googleOAuthClient.verifyIdToken({
+        idToken: req.credential,
+        audience: authConfig.googleClientId,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      throw APIError.unauthenticated("Invalid Google credential");
+    }
+
+    if (!payload || !payload.sub || !payload.email) {
+      throw APIError.unauthenticated("Invalid Google credential");
+    }
+
+    // Auto-linking on an unverified email is an account-takeover vector: only trust
+    // the email once Google itself asserts ownership.
+    if (payload.email_verified !== true) {
+      throw APIError.permissionDenied("Google account email is not verified");
+    }
+
+    const sub = payload.sub;
+    const email = payload.email.toLowerCase().trim();
+    const firstName = payload.given_name || undefined;
+    const lastName = payload.family_name || undefined;
+    const picture = payload.picture || null;
+
+    // (2a) Match by stable Google identity first — survives Google email changes.
+    let userRow = await scheduleDB.queryRow`
+      SELECT id, email, password_hash, first_name, last_name, is_active
+      FROM users
+      WHERE provider = 'google' AND provider_user_id = ${sub}
+    `;
+
+    if (userRow) {
+      if (!userRow.is_active) {
+        throw APIError.permissionDenied("Account is disabled");
+      }
+    } else {
+      // (2b) Otherwise match by verified email and auto-link this Google identity to
+      // the existing (e.g. password) account — no duplicate row is created.
+      const existingByEmail = await scheduleDB.queryRow`
+        SELECT id, email, password_hash, first_name, last_name, is_active
+        FROM users
+        WHERE email = ${email}
+      `;
+
+      if (existingByEmail) {
+        if (!existingByEmail.is_active) {
+          throw APIError.permissionDenied("Account is disabled");
+        }
+
+        await scheduleDB.exec`
+          UPDATE users
+          SET provider = 'google',
+              provider_user_id = ${sub},
+              avatar_url = COALESCE(avatar_url, ${picture}),
+              updated_at = NOW()
+          WHERE id = ${existingByEmail.id}
+        `;
+        userRow = existingByEmail;
+      } else {
+        // (2c) No match — create a new password-less Google account.
+        const newId = generateId();
+        const now = new Date();
+        await scheduleDB.exec`
+          INSERT INTO users (id, email, password_hash, first_name, last_name, is_active, provider, provider_user_id, avatar_url, created_at, updated_at)
+          VALUES (${newId}, ${email}, NULL, ${firstName || null}, ${lastName || null}, true, 'google', ${sub}, ${picture}, ${now}, ${now})
+        `;
+        userRow = {
+          id: newId,
+          email,
+          password_hash: null,
+          first_name: firstName || null,
+          last_name: lastName || null,
+          is_active: true,
+        };
+      }
+    }
+
+    // Establish session + JWT exactly as the login path does.
+    const sessionId = generateSessionId();
+    const now = new Date();
+    const expiresAt = new Date(Date.now() + (authConfig.tokenExpirationHours * 3600 * 1000));
+
+    await scheduleDB.exec`
+      INSERT INTO user_sessions (id, user_id, session_id, issued_at, expires_at, is_active)
+      VALUES (${generateId()}, ${userRow.id}, ${sessionId}, ${now}, ${expiresAt}, true)
+    `;
+
+    const userProfile: UserProfile = {
+      id: userRow.id,
+      email: userRow.email,
+      firstName: userRow.first_name,
+      lastName: userRow.last_name,
+    };
+
+    const token = createJWTToken(userProfile, sessionId);
+
+    return {
+      user: userProfile,
+      token,
+      expiresAt,
     };
   }
 );

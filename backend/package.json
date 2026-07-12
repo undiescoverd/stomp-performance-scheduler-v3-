@@ -12,6 +12,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "bcryptjs": "^3.0.2",
     "encore.dev": "^1.50.0",
+    "google-auth-library": "^10.9.0",
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {

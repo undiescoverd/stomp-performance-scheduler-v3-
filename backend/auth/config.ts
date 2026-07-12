@@ -15,6 +15,24 @@ import { AuthConfig } from "./types";
 // a value anyone with repo access could read.
 const jwtSecretValue = secret("JWTSecret");
 
+// Google OAuth Client ID, managed by Encore. Unlike JWTSecret this is a *public*
+// value (it's also shipped to the browser as VITE_GOOGLE_CLIENT_ID) and is used
+// only as the audience check when verifying Google ID tokens. It is deliberately
+// optional: when unset, Google sign-in is disabled and the /auth/google endpoint
+// rejects requests — the app still boots and email/password auth is unaffected.
+// Set with `encore secret set --type local GoogleClientID` (and `--type prod`).
+const googleClientIdValue = secret("GoogleClientID");
+
+// Read the Google Client ID without ever throwing: an unset secret must not break
+// app boot, since authConfig is loaded on every authenticated request.
+function readGoogleClientId(): string {
+  try {
+    return googleClientIdValue() || "";
+  } catch {
+    return "";
+  }
+}
+
 // Default configuration values
 const DEFAULT_CONFIG: Partial<AuthConfig> = {
   tokenExpirationHours: 24, // 24 hours default token expiration
@@ -33,6 +51,7 @@ export function loadAuthConfig(): AuthConfig {
   return {
     jwtSecret: jwtSecretValue(),
     tokenExpirationHours,
+    googleClientId: readGoogleClientId(),
   };
 }
 
@@ -62,6 +81,12 @@ export function validateAuthConfig(config: AuthConfig): void {
 
   if (config.tokenExpirationHours > 168) { // 7 days
     console.warn('⚠️  Token expiration set to more than 7 days, consider shorter duration for security');
+  }
+
+  // Google sign-in is optional: warn (do not throw) when unconfigured so the app
+  // still boots pre-credentials with email/password auth fully functional.
+  if (!config.googleClientId) {
+    console.warn('⚠️  GoogleClientID secret not set — Google sign-in is disabled and /auth/google will reject requests until configured');
   }
 }
 
@@ -110,5 +135,6 @@ export function getAuthConfigInstance(): AuthConfig {
 // For backward compatibility, export a getter
 export const authConfig = {
   get jwtSecret() { return getAuthConfigInstance().jwtSecret; },
-  get tokenExpirationHours() { return getAuthConfigInstance().tokenExpirationHours; }
+  get tokenExpirationHours() { return getAuthConfigInstance().tokenExpirationHours; },
+  get googleClientId() { return getAuthConfigInstance().googleClientId; }
 };
