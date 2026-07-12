@@ -742,7 +742,7 @@ export class SchedulingAlgorithm {
       // ship this, with its warnings intact, rather than fall through to
       // generatePartialSchedule()'s relaxed constraints, which would silently
       // under-cast shows to hide the same failure.
-      let bestAttempt: { assignments: Assignment[]; warnings: string[]; dayOffStats: Record<string, number> } | null = null;
+      let bestAttempt: { assignments: Assignment[]; warnings: string[]; redDayWarningCount: number; dayOffStats: Record<string, number> } | null = null;
 
       // Try multiple attempts to find a valid assignment with corrected constraints
       for (let attempt = 0; attempt < 100; attempt++) {
@@ -767,12 +767,20 @@ export class SchedulingAlgorithm {
             if (this.lastRedDayWarnings.length > 0) {
               // Critically clean, but a performer could not be given a RED
               // day. Remember it as the fallback if it's the best one yet,
-              // and keep trying for a fully clean attempt.
-              if (!bestAttempt || this.lastRedDayWarnings.length < bestAttempt.warnings.length) {
+              // and keep trying for a fully clean attempt. Compared on
+              // redDayWarningCount alone (not the combined warnings.length),
+              // since mixing in fairness-warning count would let an attempt
+              // with strictly more unseated RED days win on a lucky fairness
+              // tally — the one metric this fallback exists to minimize.
+              if (!bestAttempt || this.lastRedDayWarnings.length < bestAttempt.redDayWarningCount) {
                 const { warnings, performerDayOffCounts } = this.validateDayOffFairness(finalAssignments);
+                const fallbackWarnings = this.fairnessFallbackCount > 0
+                  ? [`Fair OFF-selection fell back to random for ${this.fairnessFallbackCount} show(s) — day-off fairness may be reduced`]
+                  : [];
                 bestAttempt = {
                   assignments: finalAssignments,
-                  warnings: [...this.lastRedDayWarnings, ...warnings],
+                  warnings: [...this.lastRedDayWarnings, ...fallbackWarnings, ...warnings],
+                  redDayWarningCount: this.lastRedDayWarnings.length,
                   dayOffStats: performerDayOffCounts
                 };
               }
