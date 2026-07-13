@@ -8,7 +8,7 @@ export interface GetCastMembersResponse {
 
 // Retrieves all cast members and their role eligibility from the company management system.
 export const getCastMembers = api<void, GetCastMembersResponse>(
-  { expose: true, method: "GET", path: "/cast-members" },
+  { expose: true, method: "GET", path: "/cast-members", auth: true },
   async () => {
     // Import the company module dynamically to avoid circular dependencies
     try {

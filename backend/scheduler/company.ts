@@ -1,4 +1,4 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import { scheduleDB } from "./db";
 import { CAST_MEMBERS, ROLES, FEMALE_ONLY_ROLES, CastMember, Role } from "./types";
 
@@ -123,9 +123,22 @@ async function ensureSeeded(): Promise<void> {
   `;
 }
 
+// The roster is shared by every user, so it must never be emptied through the
+// API: the seed marker deliberately prevents re-seeding (see ensureSeeded), so
+// losing the last active member would leave every user with a blank company.
+async function assertNotLastActiveMember(memberId: string, action: string): Promise<void> {
+  const others = await scheduleDB.queryRow<{ n: number }>`
+    SELECT COUNT(*)::int AS n FROM company_members
+    WHERE status = 'active' AND id != ${memberId}
+  `;
+  if ((others?.n ?? 0) === 0) {
+    throw APIError.failedPrecondition(`Cannot ${action} the last active company member`);
+  }
+}
+
 // Retrieves the current company and archive.
 export const getCompany = api<void, GetCompanyResponse>(
-  { expose: true, method: "GET", path: "/company" },
+  { expose: true, method: "GET", path: "/company", auth: true },
   async () => {
     await ensureSeeded();
 
@@ -223,6 +236,10 @@ export const updateMember = api<UpdateMemberRequest, UpdateMemberResponse>(
 
     // Handle status changes.
     if (req.status !== undefined && req.status !== member.status) {
+      if (req.status === "archived") {
+        await assertNotLastActiveMember(req.id, "archive");
+      }
+
       member.status = req.status;
 
       if (req.status === "archived") {
@@ -261,11 +278,15 @@ export const deleteMember = api<DeleteMemberRequest, void>(
   async (req) => {
     await ensureSeeded();
 
-    const existing = await scheduleDB.queryRow<{ id: string }>`
-      SELECT id FROM company_members WHERE id = ${req.id}
+    const existing = await scheduleDB.queryRow<{ id: string; status: string }>`
+      SELECT id, status FROM company_members WHERE id = ${req.id}
     `;
     if (!existing) {
       throw new Error("Member not found");
+    }
+
+    if (existing.status === "active") {
+      await assertNotLastActiveMember(req.id, "delete");
     }
 
     await scheduleDB.exec`DELETE FROM company_members WHERE id = ${req.id}`;

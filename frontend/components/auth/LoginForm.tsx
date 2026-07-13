@@ -11,9 +11,10 @@ import GoogleSignInButton from './GoogleSignInButton';
 interface LoginFormProps {
   onSuccess?: () => void;
   onSwitchToRegister?: () => void;
+  onSwitchToForgot?: () => void;
 }
 
-const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onSwitchToRegister }) => {
+const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onSwitchToRegister, onSwitchToForgot }) => {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -91,6 +92,18 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onSwitchToRegister }) 
               placeholder="Enter your password"
               disabled={isLoading}
             />
+            {onSwitchToForgot && (
+              <div className="mt-1 text-right">
+                <button
+                  type="button"
+                  onClick={onSwitchToForgot}
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  disabled={isLoading}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
           </div>
 
           <button

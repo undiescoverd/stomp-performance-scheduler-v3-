@@ -50,6 +50,8 @@ interface AuthContextValue extends AuthState {
   loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  resetPassword: (token: string, password: string) => Promise<void>;
 }
 
 // Create context
@@ -136,6 +138,20 @@ const authAPI = {
   logout: async () => {
     return apiCall('/auth/logout', {
       method: 'POST',
+    });
+  },
+
+  forgotPassword: async (email: string) => {
+    return apiCall('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  resetPassword: async (token: string, password: string) => {
+    return apiCall('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
     });
   },
 };
@@ -292,6 +308,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     logout: logoutMutation.mutateAsync,
     refreshUser: async () => {
       await queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
+    },
+    // Stateless pass-throughs: neither call touches the session, so no
+    // mutation-cache bookkeeping is needed.
+    forgotPassword: async (email: string) => {
+      await authAPI.forgotPassword(email);
+    },
+    resetPassword: async (token: string, password: string) => {
+      await authAPI.resetPassword(token, password);
     },
   };
 

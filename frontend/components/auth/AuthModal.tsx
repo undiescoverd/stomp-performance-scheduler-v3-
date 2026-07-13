@@ -7,6 +7,9 @@
 import React, { useState } from 'react';
 import LoginForm from './LoginForm';
 import RegisterForm from './RegisterForm';
+import ForgotPasswordForm from './ForgotPasswordForm';
+
+type AuthMode = 'login' | 'register' | 'forgot';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -14,12 +17,18 @@ interface AuthModalProps {
   defaultMode?: 'login' | 'register';
 }
 
-const AuthModal: React.FC<AuthModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  defaultMode = 'login' 
+const MODE_TITLES: Record<AuthMode, string> = {
+  login: 'Sign In',
+  register: 'Create Account',
+  forgot: 'Reset Password',
+};
+
+const AuthModal: React.FC<AuthModalProps> = ({
+  isOpen,
+  onClose,
+  defaultMode = 'login'
 }) => {
-  const [mode, setMode] = useState<'login' | 'register'>(defaultMode);
+  const [mode, setMode] = useState<AuthMode>(defaultMode);
 
   if (!isOpen) return null;
 
@@ -27,16 +36,12 @@ const AuthModal: React.FC<AuthModalProps> = ({
     onClose();
   };
 
-  const handleSwitchMode = () => {
-    setMode(prev => prev === 'login' ? 'register' : 'login');
-  };
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-900">
-            {mode === 'login' ? 'Sign In' : 'Create Account'}
+            {MODE_TITLES[mode]}
           </h2>
           <button
             onClick={onClose}
@@ -55,16 +60,21 @@ const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         <div className="p-4">
-          {mode === 'login' ? (
-            <LoginForm 
+          {mode === 'login' && (
+            <LoginForm
               onSuccess={handleSuccess}
-              onSwitchToRegister={handleSwitchMode}
+              onSwitchToRegister={() => setMode('register')}
+              onSwitchToForgot={() => setMode('forgot')}
             />
-          ) : (
-            <RegisterForm 
+          )}
+          {mode === 'register' && (
+            <RegisterForm
               onSuccess={handleSuccess}
-              onSwitchToLogin={handleSwitchMode}
+              onSwitchToLogin={() => setMode('login')}
             />
+          )}
+          {mode === 'forgot' && (
+            <ForgotPasswordForm onSwitchToLogin={() => setMode('login')} />
           )}
         </div>
       </div>
