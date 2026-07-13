@@ -55,6 +55,10 @@ encore run                    # Start Encore development server (typically http:
 encore gen client --target leap # Generate frontend client from backend API
 ```
 
+**Gotchas:**
+- `encore run` does not hot-reload new migration files into an already-running session, and its "Running database migrations... Done!" banner isn't proof they applied — verify with `encore db shell <db> --env=local` → `SELECT * FROM schema_migrations;`, and restart `encore run` if it's behind.
+- `encore version update` updates the CLI but not the already-running background daemon. Restart `encore run` afterward to trigger the daemon's own auto-update (`daemon is running an outdated version, restarting`) — required for daemon-gated features like the DB Explorer.
+
 ### Frontend Development
 ```bash
 cd frontend
@@ -179,6 +183,8 @@ The application models theatrical scheduling with these core entities:
 - E2E tests require both backend and frontend running
 - TailwindCSS v4 is configured with custom animation support
 - MSW is configured for API mocking in tests
+- Deploying to a named environment (e.g. `staging`) requires every declared secret to have a value for *that* environment specifically, even ones the app code treats as optional — check with `encore secret list` and set with `encore secret set --env <name> <Key>` (the `--env` flag targets named environments; `--type` only covers prod/dev/local/preview).
+- `encore alpha deploy --env <env> --branch <branch>` only confirms the deploy was *submitted* ("Started Deploy: <url>", exit 0) — build/provision/rollout happens async and can fail with no local signal. Verify via the deploy's dashboard URL or by diffing the served bundle's content hash.
 
 ## Recent Critical Fixes (January 2025)
 
