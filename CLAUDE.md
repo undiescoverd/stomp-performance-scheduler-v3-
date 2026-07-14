@@ -119,9 +119,63 @@ The application models theatrical scheduling with these core entities:
   - `deriveGender()` in `scheduler/company.ts` only infers gender from eligibility when
     the caller omits it; an explicit `gender` always wins.
 - Complex scheduling algorithm handles consecutive show constraints and RED day management
+- Company RED day: a scheduler can nominate one day off to carry the *whole company's*
+  RED day, via the `Show.isCompanyRedDay` flag (valid only when `status === "dayoff"`,
+  at most one per schedule).
+  - The week's first day off **auto-nominates** so ordinary weeks are unaffected; a
+    scheduler can move the nomination to a different day off (e.g. a loading day) or
+    clear it entirely.
+  - Frontend invariant (single flag per schedule) is maintained by helpers in
+    `frontend/components/domain/week.ts`; migration 9 backfilled the flag onto each
+    existing schedule's earliest day off, preserving prior computed behavior.
+- **RED days are DERIVED, never stored.** A performer's *effective RED date* is the
+  company RED date if the week has one, and only otherwise the date of their own `OFF`
+  assignment carrying `isRedDay`. Nothing is written for a company RED day. Consequences
+  worth internalising before touching any RED code:
+  - Setting a company RED day **mutates nothing**: no casting moves, and individual RED
+    picks go **dormant** (still in `assignments_data`, simply ignored) rather than being
+    deleted. Removing the day off restores the week exactly, with no undo stack and no
+    dependence on the session surviving a save/reload.
+  - **Dormant means inert during generation too.** `castingRedDateFor()` bypasses
+    `lockedRedDates` while a company RED day exists, so a dormant pick never keeps a
+    performer off stage for a reason that no longer applies. The invariant that keeps
+    this safe: *a dormant flag must always be restorable* — so Branch A of
+    `assignRedDays` drops a dormant flag if that generation cast the performer on that
+    date (a restored RED day they are working would trip `RED_DAY_NOT_FULL_DAY`).
+  - The rule is written **twice** — backend `validateSchedule` (`scheduler/algorithm.ts`)
+    and frontend `companyRedDate()`/`isRedDayFor()`
+    (`components/domain/schedule-grid/logic.ts`). They do not share a module. If the grid
+    and the validator ever disagree about RED days, that pair is the first place to look.
+    Every reader (grid, stat cards, dashboard, PDF export) routes through one of them.
+  - `scheduler/toggle_red_day.ts` is an **orphaned endpoint** no frontend code calls, and
+    it now disagrees with the derived rule. Don't wire it up without reworking it.
+  - Design: `docs/superpowers/specs/2026-07-14-derived-red-days-design.md`.
 - Cast member eligibility restricted by predefined role assignments
 
 ### Recent Features & Improvements
+- **Derived RED Days (v3.3)**: A performer's effective RED date is now derived at read
+  time rather than stored — see "Special Constraints" above for the rule and its
+  invariants. Adding a company RED day after an auto-generation no longer leaves twelve
+  stale individual RED days in the grid, and no longer requires a full regenerate (which
+  risked moving casting the user had already accepted). This also fixed a live bug:
+  auto-generating *with* a company RED day set previously destroyed every individual RED
+  day permanently, because Branch A cleared them and `convertToAssignments()` never
+  re-emitted them.
+- **OVERWORKED warning fix**: the fair share is measured per *stage slot*, not per show.
+  It divided shows by cast size (8 / 12 = 0.67) and warned above 1.5x that — i.e. at 2
+  shows — so all twelve performers were flagged "potentially overworked" in a perfectly
+  balanced week. Each show puts `roles.length` performers on stage, so the real average
+  is `shows * roles / cast` (5.33). With a full 12/8 company the warning now correctly
+  stays silent: the hard weekly cap (max 6) errors independently and is the real
+  protection, and there is no room to be overworked relative to your peers without
+  already breaching it. It still fires on a larger roster.
+- **Company RED Day Nomination**: Schedulers can nominate (or clear) the single day
+  off that carries the whole company's RED day via `Show.isCompanyRedDay`, edited in
+  the `DayEditor` popover — see "Special Constraints" above for the full behavior. Also
+  fixed a real generation bug: a week that couldn't seat every individual RED day used
+  to burn all 100 retry attempts and ship a degraded `generatePartialSchedule()`; it
+  now ships the best of the 100 attempts (fewest RED-day warnings) with its warnings
+  intact, comparing `redDayWarningCount` alone rather than the combined warning count.
 - **Schedule Editor UI Overhaul (v3.2)**: Header controls are now focused, mutually-exclusive pill-anchored popovers — time cells (`TimeEditor`), day add/remove (`DayEditor`), and travel/RED status detail (`StatusDetailEditor`, which auto-opens on Travel/Day Off so the Status row never grows). Validation reads as a per-performer table (`ViolationBanner`) driven by structured `items` from the `validate` endpoint; summary stat cards sit above the grid. No algorithm change.
 - **Algorithm Fairness Fix (v3.1)**: Critical fix ensuring all 12 performers get exactly one RED day per week
 - **Smart RED Day Assignment**: Weekday preference (Tuesday-Friday) with intelligent load balancing
