@@ -71,6 +71,16 @@ export function useScheduleEditor(id?: string) {
     refetchIntervalInBackground: false // Don't refresh when tab is not focused to save resources
   });
 
+  // The true active roster, used only to gate Auto-Generate. castData can't be
+  // used for this: getCastMembers() falls back to 12 phantom default cast when
+  // the company is empty, so its length is never 0 — guarding on it would never
+  // fire. getCompany() returns the real active members (['company'] key shared
+  // with the Cast screen, so it's usually already cached).
+  const { data: companyData, isLoading: isCompanyLoading } = useQuery({
+    queryKey: ['company'],
+    queryFn: () => backend.scheduler.getCompany(),
+  });
+
   // Create schedule mutation
   const createMutation = useMutation({
     mutationFn: (data: { location: string; week: string; shows: Show[]; assignments?: Assignment[] }) =>
@@ -355,6 +365,27 @@ export function useScheduleEditor(id?: string) {
   };
 
   const handleAutoGenerate = async () => {
+    // Gate on the active roster before doing any work, so an empty cast fails
+    // instantly instead of the button spinning while the backend churns on
+    // phantom default cast (see the companyData query above). Distinguish
+    // still-loading from loaded-and-empty so a fast click during load doesn't
+    // false-fire the "no cast" error.
+    if (isCompanyLoading || !companyData) {
+      toast({
+        title: "One moment",
+        description: "Cast list is still loading — try again in a second.",
+      });
+      return;
+    }
+    if (companyData.currentCompany.length === 0) {
+      toast({
+        title: "No cast members",
+        description: "Add cast in the Cast area before generating a schedule.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const activeShows = shows.filter(show => show.status === 'show');
     if (activeShows.length === 0) {
       toast({
