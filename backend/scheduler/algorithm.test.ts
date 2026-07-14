@@ -888,9 +888,16 @@ describe('M3 — nominated company RED day', () => {
     const result = await algorithm.autoGenerate();
     expect(result.success).toBe(true);
 
+    // The company RED day is DERIVED from the flag, not stored: generating from
+    // blank writes no RED rows at all (there are no dormant picks to preserve).
     for (const member of CAST_MEMBERS) {
-      expect([...redDatesFor(result.assignments, shows, member.name)]).toEqual(["2024-01-07"]);
+      expect([...redDatesFor(result.assignments, shows, member.name)]).toEqual([]);
     }
+    // ...and the derivation is what makes that correct — every performer reads
+    // as covered, so nobody is flagged missing a RED day.
+    const validation = algorithm.validateSchedule(result.assignments);
+    expect(validation.items.filter(i => i.code.startsWith('RED_DAY'))).toEqual([]);
+
     // Every show is still fully cast — flagging the day off takes it out of
     // the fairness path entirely, so capacity is a non-issue here.
     for (const show of shows.filter(s => s.status === 'show')) {
@@ -953,9 +960,185 @@ describe('M3 — nominated company RED day', () => {
     const result = await algorithm.autoGenerate();
     expect(result.success).toBe(true);
 
+    // Earliest flagged day off (Tue) wins. It is derived, so — as above —
+    // nothing is stored, and every performer still reads as covered.
     for (const member of CAST_MEMBERS) {
-      expect([...redDatesFor(result.assignments, shows, member.name)]).toEqual(["2024-01-02"]);
+      expect([...redDatesFor(result.assignments, shows, member.name)]).toEqual([]);
     }
+    const validation = algorithm.validateSchedule(result.assignments);
+    expect(validation.items.filter(i => i.code.startsWith('RED_DAY'))).toEqual([]);
+
     expect(result.warnings?.some(w => w.includes('More than one day off is flagged'))).toBe(true);
+  });
+});
+
+// The derived rule: a performer's effective RED date is the company RED date if
+// the week has one, else the date of their own isRedDay OFF row. Nothing is
+// stored for a company RED day, and individual flags go DORMANT rather than
+// being cleared — so removing the day off restores the week exactly.
+describe('derived RED days', () => {
+  const week = (): Show[] => ([
+    { id: "tue", date: "2024-01-02", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "wed", date: "2024-01-03", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "thu", date: "2024-01-04", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "fri", date: "2024-01-05", time: "00:00", callTime: "00:00", status: "dayoff" },
+    { id: "sat_mat", date: "2024-01-06", time: "14:00", callTime: "12:30", status: "show" },
+    { id: "sat_eve", date: "2024-01-06", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "sun_mat", date: "2024-01-07", time: "14:00", callTime: "12:30", status: "show" },
+    { id: "sun_eve", date: "2024-01-07", time: "19:30", callTime: "18:00", status: "show" },
+  ]);
+
+  const flagFriday = (shows: Show[]): Show[] =>
+    shows.map(s => s.id === 'fri' ? { ...s, isCompanyRedDay: true } : s);
+
+  const redItems = (result: { items: Array<{ code: string; severity: string }> }) =>
+    result.items.filter(i => i.code.startsWith('RED_DAY'));
+
+  const redDateFor = (assignments: Assignment[], shows: Show[], performer: string): string[] => {
+    const dateById = new Map(shows.map(s => [s.id, s.date]));
+    return [...new Set(
+      assignments
+        .filter(a => a.performer === performer && a.role === 'OFF' && a.isRedDay)
+        .map(a => dateById.get(a.showId))
+        .filter((d): d is string => !!d)
+    )];
+  };
+
+  // Stale individual flags, shaped so that reading them trips ALL THREE
+  // downstream RED rules. A validator still driven by the stored flags cannot
+  // pass this; one driven by the derivation sees none of it.
+  //   PHIL  — flagged on two dates          -> RED_DAY_MULTIPLE
+  //   SEAN  — flagged on tue, but cast on tue -> RED_DAY_NOT_FULL_DAY
+  //   the other 10 — no flag at all         -> RED_DAY_MISSING
+  const staleIndividualReds = (): Assignment[] => [
+    { showId: 'tue', role: 'OFF', performer: 'PHIL', isRedDay: true },
+    { showId: 'wed', role: 'OFF', performer: 'PHIL', isRedDay: true },
+    { showId: 'tue', role: 'OFF', performer: 'SEAN', isRedDay: true },
+    { showId: 'tue', role: 'Sarge', performer: 'SEAN' },
+  ];
+
+  describe('Step 1 — validateSchedule derives the rule', () => {
+    it('a company RED day covers every performer, ignoring stale individual flags', () => {
+      const shows = flagFriday(week());
+      const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS);
+
+      const result = algorithm.validateSchedule(staleIndividualReds());
+
+      // Everyone's RED day is the Friday, derived. The stale flags are dormant:
+      // PHIL's two raise no MULTIPLE, SEAN's raises no NOT_FULL_DAY even though
+      // he is cast that day, and the ten unflagged performers are not MISSING.
+      expect(redItems(result)).toEqual([]);
+    });
+
+    it('without a company RED day, individual flags still drive RED days (regression guard)', () => {
+      const shows = week(); // Friday is a day off, but NOT flagged
+      const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS);
+
+      // Same assignments as above. The ONLY difference is the company RED flag,
+      // so this pins the derivation as the cause of the silence up there — all
+      // three rules fire on the untouched path.
+      const result = algorithm.validateSchedule(staleIndividualReds());
+
+      expect(result.items.some(i => i.code === 'RED_DAY_MULTIPLE' && i.performer === 'PHIL')).toBe(true);
+      expect(result.items.some(i => i.code === 'RED_DAY_NOT_FULL_DAY' && i.performer === 'SEAN')).toBe(true);
+      expect(result.items.filter(i => i.code === 'RED_DAY_MISSING')).toHaveLength(CAST_MEMBERS.length - 2);
+    });
+  });
+
+  describe('Steps 2 & 3 — dormant flags survive generation, and stop constraining it', () => {
+    const isRed = (assignments: Assignment[], performer: string, showId: string) =>
+      assignments.some(a => a.performer === performer && a.showId === showId && a.role === 'OFF' && a.isRedDay === true);
+
+    const castAs = (assignments: Assignment[], showId: string, role: string) =>
+      assignments.find(a => a.showId === showId && a.role === role)?.performer;
+
+    // Tuesday fully cast by the eight performers who are NOT the subject of the
+    // test, so the subject is guaranteed OFF that day (locked picks survive the
+    // per-attempt reset). Leaves PHIL, JOE, CADE, SERENA off on Tuesday.
+    const tuesdayCastWithoutPhil = (): Assignment[] => [
+      { showId: 'tue', role: 'Sarge', performer: 'SEAN' },
+      { showId: 'tue', role: 'Potato', performer: 'JAMIE' },
+      { showId: 'tue', role: 'Mozzie', performer: 'JOSE' },
+      { showId: 'tue', role: 'Ringo', performer: 'ADAM' },
+      { showId: 'tue', role: 'Particle', performer: 'CARY' },
+      { showId: 'tue', role: 'Bin', performer: 'MOLLY' },
+      { showId: 'tue', role: 'Cornish', performer: 'JASMINE' },
+      { showId: 'tue', role: 'Who', performer: 'JOSH' },
+    ];
+
+    it('preserves dormant individual RED days when a company RED day is set', async () => {
+      // THE STEP 3 REGRESSION. Before this change Branch A cleared every
+      // individual isRedDay, so auto-generating with a company RED day set
+      // destroyed the picks permanently — remove the day off afterwards and all
+      // twelve performers had no RED day, with no way back.
+      const seeded: Assignment[] = [
+        ...tuesdayCastWithoutPhil(),
+        { showId: 'tue', role: 'OFF', performer: 'PHIL', isRedDay: true },
+      ];
+      const shows = flagFriday(week());
+      const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS, seeded);
+
+      const result = await algorithm.autoGenerate();
+      expect(result.success).toBe(true);
+
+      // PHIL's Tuesday pick is dormant, not deleted: it is still on the OFF row,
+      // ready to come back the moment the Friday day off is removed.
+      expect(isRed(result.assignments, 'PHIL', 'tue')).toBe(true);
+    });
+
+    it('drops a dormant RED day the generator cast over, without resurrecting it onto the other show of a two-show day', async () => {
+      // PHIL is cast on the Saturday MATINEE but carries a dormant RED day on
+      // that same date. He is not cast in the evening (SEAN holds the only role
+      // PHIL can play), so he takes an OFF row there — and the naive
+      // `dormant === show.date` test would happily stamp isRedDay onto it.
+      // A restored RED day on a date he is working is un-restorable state.
+      const seeded: Assignment[] = [
+        { showId: 'sat_mat', role: 'Sarge', performer: 'PHIL' },
+        { showId: 'sat_eve', role: 'Sarge', performer: 'SEAN' },
+        { showId: 'sat_mat', role: 'OFF', performer: 'PHIL', isRedDay: true },
+      ];
+      const shows = flagFriday(week());
+      const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS, seeded);
+
+      const result = await algorithm.autoGenerate();
+      expect(result.success).toBe(true);
+
+      // He really is cast in the matinee and OFF in the evening — the setup the
+      // guard exists for, not a vacuous pass.
+      expect(castAs(result.assignments, 'sat_mat', 'Sarge')).toBe('PHIL');
+      expect(result.assignments.some(a => a.performer === 'PHIL' && a.showId === 'sat_eve' && a.role === 'OFF')).toBe(true);
+
+      // The dormant flag is gone entirely — not on the matinee, and crucially
+      // not displaced onto the evening.
+      expect(isRed(result.assignments, 'PHIL', 'sat_eve')).toBe(false);
+      expect(result.assignments.some(a => a.performer === 'PHIL' && a.isRedDay === true)).toBe(false);
+    });
+
+    it('a dormant RED date does not keep a performer off stage under a company RED day', async () => {
+      // THE STEP 2 BYPASS. SEAN is locked into Potato on Tuesday, so Sarge that
+      // day can only be filled by PHIL — who carries a dormant RED day on it.
+      // While the company RED day is active that pick means nothing, so PHIL
+      // must be castable; leaving him off stage would narrow the pool for a
+      // reason that no longer applies.
+      const seeded: Assignment[] = [
+        { showId: 'tue', role: 'Potato', performer: 'SEAN' },
+        { showId: 'tue', role: 'OFF', performer: 'PHIL', isRedDay: true },
+      ];
+
+      const withCompanyRed = new SchedulingAlgorithm(flagFriday(week()), CAST_MEMBERS, seeded);
+      const result = await withCompanyRed.autoGenerate();
+      expect(result.success).toBe(true);
+      expect(castAs(result.assignments, 'tue', 'Sarge')).toBe('PHIL');
+
+      // The counterpart: with no company RED day the pick is live again, so the
+      // constraint holds and PHIL stays off stage on his RED date. Same seed,
+      // same week — only the flag differs, which is what makes the assertion
+      // above attributable to it.
+      const noCompanyRed = new SchedulingAlgorithm(week(), CAST_MEMBERS, seeded);
+      const plain = await noCompanyRed.autoGenerate();
+      expect(plain.assignments.some(
+        a => a.showId === 'tue' && a.role !== 'OFF' && a.performer === 'PHIL',
+      )).toBe(false);
+    });
   });
 });

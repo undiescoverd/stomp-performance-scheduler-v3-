@@ -38,13 +38,43 @@ export function offPerformers(
   return castMembers.map((m) => m.name).filter((n) => !used.has(n));
 }
 
-/** Is `performer` flagged RED on the given calendar date (normalized key)? */
+/**
+ * The date nominated to carry the whole company's RED day, or null when none is.
+ *
+ * Filters on the isCompanyRedDay flag, not merely status === "dayoff": a week can
+ * hold several days off and only one may be marked. Takes the earliest if two
+ * somehow are, matching the backend's detectCompanyRedDate().
+ */
+export function companyRedDate(shows: Show[]): string | null {
+  const flagged = shows
+    .filter((s) => s.status === "dayoff" && s.isCompanyRedDay === true)
+    .map((s) => isoDate(s.date))
+    .sort();
+  return flagged[0] ?? null;
+}
+
+/**
+ * Is `performer` on a RED day on the given calendar date (normalized key)?
+ *
+ * DERIVED, never read straight off the stored flags: a performer's effective RED
+ * date is the company RED date if the week has one, and only otherwise the date
+ * of their own isRedDay OFF row. So while a company RED day is set the stored
+ * flags are dormant — still in the data, so removing the day off restores them,
+ * but ignored here.
+ *
+ * This mirrors validateSchedule in backend/scheduler/algorithm.ts. The two don't
+ * share a module; if the grid and the validator ever disagree about RED days,
+ * this pair is the first place to look.
+ */
 export function isRedDayFor(
   assignments: Assignment[],
   shows: Show[],
   performer: string,
   date: string,
 ): boolean {
+  const company = companyRedDate(shows);
+  if (company) return date === company;
+
   return assignments.some(
     (a) =>
       a.performer === performer &&
@@ -168,13 +198,18 @@ export function gridAnalytics(
   assignments: Assignment[],
   shows: Show[],
   roles: Role[],
+  castMembers: CastMember[],
 ): GridAnalytics {
   const showShows = shows.filter((s) => s.status === "show");
   const showIds = new Set(showShows.map((s) => s.id));
   const totalSlots = showShows.length * roles.length;
   const filled = assignments.filter((a) => a.role !== "OFF" && a.performer && showIds.has(a.showId)).length;
   const conflicts = showShows.reduce((n, s) => n + showConflicts(assignments, s.id).size, 0);
-  const redCovered = new Set(assignments.filter((a) => a.isRedDay).map((a) => a.performer)).size;
+  // A company RED day covers the whole company by derivation, so everyone is
+  // RED-covered — the stored flags are dormant and would undercount.
+  const redCovered = companyRedDate(shows)
+    ? castMembers.length
+    : new Set(assignments.filter((a) => a.isRedDay).map((a) => a.performer)).size;
   return {
     showCount: showShows.length,
     filled,

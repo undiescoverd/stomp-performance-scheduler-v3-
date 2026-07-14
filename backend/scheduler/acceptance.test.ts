@@ -67,6 +67,25 @@ function redDates(assignments: Assignment[], shows: Show[], performer: string): 
   );
 }
 
+// The company RED date: the earliest day off nominated to carry it, or null.
+function companyRedDate(shows: Show[]): string | null {
+  const flagged = shows
+    .filter(s => s.status === "dayoff" && s.isCompanyRedDay === true)
+    .map(s => s.date)
+    .sort();
+  return flagged[0] ?? null;
+}
+
+// A performer's EFFECTIVE RED dates, re-computed here from the derived rule
+// rather than read off the stored flags: the company RED date if the week has
+// one (it covers everybody, and stored flags are dormant), else that
+// performer's own RED-flagged OFF rows. Kept independent of the algorithm's own
+// derivation, in keeping with this suite's recompute-don't-trust stance.
+function effectiveRedDates(assignments: Assignment[], shows: Show[], performer: string): Set<string> {
+  const company = companyRedDate(shows);
+  return company ? new Set([company]) : redDates(assignments, shows, performer);
+}
+
 describe("Phase 7 — acceptance", () => {
   it("standard-week soak: 50 generations all satisfy every §0 invariant", async () => {
     const eligibleByName = new Map(CAST.map(m => [m.name, m]));
@@ -127,10 +146,12 @@ describe("Phase 7 — acceptance", () => {
     const a = result.assignments;
 
     for (const member of CAST) {
-      const reds = redDates(a, shows, member.name);
-      expect([...reds]).toEqual(["2024-01-02"]); // Tuesday company dayoff
+      // Tuesday is everyone's RED day by derivation from the flag. Nothing is
+      // stored for it — asserted explicitly below — so read the effective rule.
+      expect([...effectiveRedDates(a, shows, member.name)]).toEqual(["2024-01-02"]);
       expect(hasBackToBackDoubles(stageCountsByDate(a, shows, member.name))).toBe(false);
     }
+    expect(a.some(x => x.isRedDay)).toBe(false);
 
     // The validator itself must recognize the company RED (which sits on a
     // dayoff-status show) and NOT falsely flag everyone as missing a RED day.
@@ -190,8 +211,10 @@ describe("Phase 7 — acceptance", () => {
     const a = result.assignments;
 
     for (const member of CAST) {
-      expect([...redDates(a, shows, member.name)]).toEqual(["2024-01-05"]);
+      // The flagged FRIDAY wins, never the unflagged Tuesday day off.
+      expect([...effectiveRedDates(a, shows, member.name)]).toEqual(["2024-01-05"]);
     }
+    expect(a.some(x => x.isRedDay)).toBe(false);
     expect(algorithm.validateSchedule(a).errors.filter(e => e.includes("more than one RED day"))).toEqual([]);
   });
 });

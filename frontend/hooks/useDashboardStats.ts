@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "~backend/client";
 import type { Schedule } from "~backend/scheduler/types";
+import { companyRedDate } from "@/components/domain/schedule-grid/logic";
 
 export interface FairnessSummary {
   covered: number;
@@ -10,14 +11,18 @@ export interface FairnessSummary {
 }
 
 /** RED-day coverage computed client-side from already-loaded assignments
- *  (cheap — no per-schedule validateComprehensive fan-out on mount). */
+ *  (cheap — no per-schedule validateComprehensive fan-out on mount).
+ *
+ *  A company RED day covers the whole company by derivation, so everyone counts
+ *  as covered; the stored flags are dormant and would undercount. */
 function redCoverage(schedule: Schedule, target: number): FairnessSummary {
   const red = new Set(schedule.assignments.filter((a) => a.isRedDay).map((a) => a.performer));
   const t = target || 12;
+  const covered = companyRedDate(schedule.shows) ? t : red.size;
   return {
-    covered: red.size,
+    covered,
     target: t,
-    pct: t ? Math.round((red.size / t) * 100) : 0,
+    pct: t ? Math.round((covered / t) * 100) : 0,
     hasAssignments: schedule.assignments.length > 0,
   };
 }

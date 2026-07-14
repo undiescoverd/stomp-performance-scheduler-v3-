@@ -823,7 +823,9 @@
   cursor: pointer;
   transition: all .14s;
 }
-.off-chip:hover { background: var(--border); }
+.off-chip:not(:disabled):hover { background: var(--border); }
+/* A company RED day covers everyone, so the per-performer toggle is inert. */
+.off-chip:disabled { cursor: default; }
 .off-chip.red {
   background: var(--red); color: #fff; border-color: var(--red-line);
   box-shadow: 0 2px 8px -2px oklch(58% 0.22 25 / 0.5);

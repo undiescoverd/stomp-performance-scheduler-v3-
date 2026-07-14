@@ -84,11 +84,13 @@ describe('E2E Integration Tests', () => {
       expect(autoGenResponse.assignments).toBeDefined();
       expect(autoGenResponse.errors).toBeUndefined();
 
-      // Stage roles only exist on show days; the total also includes 4 OFF
-      // rows per show plus 12 OFF/RED rows on the company day-off (dayoff1).
+      // Stage roles only exist on show days; the total also includes 4 OFF rows
+      // per show. The company day-off (dayoff1) carries NO rows: it is every
+      // performer's RED day, but that is derived from Show.isCompanyRedDay at
+      // read time rather than stored.
       const activeShows = testShows.filter(show => show.status === 'show');
       expect(stage(autoGenResponse.assignments)).toHaveLength(activeShows.length * 8);
-      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 12 + 12);
+      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 12);
 
       // Step 3: Update schedule with generated assignments
       const updateResponse = await update({
@@ -145,15 +147,15 @@ describe('E2E Integration Tests', () => {
       const showDays = testShows.filter(show => show.status === 'show');
       expect(stage(autoGenResponse.assignments)).toHaveLength(showDays.length * 8);
 
-      // Travel days get no rows; the company day-off carries an OFF/RED row
-      // for every one of the 12 performers.
+      // Neither travel days nor the company day-off carry rows. The day-off is
+      // every performer's RED day, but derived from the flag rather than
+      // written out — so no stored RED rows exist anywhere in the week.
       const travelAssignments = autoGenResponse.assignments.filter(a => a.showId === 'travel1');
       const dayoffAssignments = autoGenResponse.assignments.filter(a => a.showId === 'dayoff1');
 
       expect(travelAssignments).toHaveLength(0);
-      expect(dayoffAssignments).toHaveLength(12);
-      expect(dayoffAssignments.every(a => a.role === 'OFF' && a.isRedDay)).toBe(true);
-      expect(new Set(dayoffAssignments.map(a => a.performer)).size).toBe(12);
+      expect(dayoffAssignments).toHaveLength(0);
+      expect(autoGenResponse.assignments.some(a => a.isRedDay)).toBe(false);
 
       // Validation should pass
       const validateResponse = await validate({
@@ -580,11 +582,11 @@ describe('E2E Integration Tests', () => {
       expect(hasDayOff).toBe(true);
 
       // Verify assignment data completeness: 8 stage + 4 OFF rows per active
-      // show, plus 12 OFF/RED rows on the company day-off.
+      // show. The company day-off carries none — it is derived, not stored.
       const activeShows = finalSchedule.schedule.shows.filter(s => s.status === 'show');
       const stageAssignments = stage(finalSchedule.schedule.assignments);
       expect(stageAssignments).toHaveLength(activeShows.length * 8);
-      expect(finalSchedule.schedule.assignments).toHaveLength(activeShows.length * 12 + 12);
+      expect(finalSchedule.schedule.assignments).toHaveLength(activeShows.length * 12);
 
       // Verify all roles are represented
       const assignedRoles = new Set(stageAssignments.map(a => a.role));
@@ -647,14 +649,11 @@ describe('E2E Integration Tests', () => {
       const autoGenResponse = await autoGenerate({ shows: nonShowDays });
 
       expect(autoGenResponse.success).toBe(true);
-      // No stage roles to fill, but the company day-off (d1) still carries an
-      // OFF/RED row for each of the 12 performers. Travel days get nothing.
+      // Nothing to fill and nothing to write: no stage roles, and the company
+      // day-off (d1) carries no rows either, since it is every performer's RED
+      // day by derivation rather than by stored flag. Travel days get nothing.
       expect(stage(autoGenResponse.assignments)).toHaveLength(0);
-      expect(autoGenResponse.assignments).toHaveLength(12);
-      const dayoffAssignments = autoGenResponse.assignments.filter(a => a.showId === 'd1');
-      expect(dayoffAssignments).toHaveLength(12);
-      expect(dayoffAssignments.every(a => a.role === 'OFF' && a.isRedDay)).toBe(true);
-      expect(new Set(dayoffAssignments.map(a => a.performer)).size).toBe(12);
+      expect(autoGenResponse.assignments).toHaveLength(0);
 
       // Validation should pass
       const validation = await validate({
@@ -735,11 +734,11 @@ describe('E2E Integration Tests', () => {
       expect(autoGenResponse.success).toBe(true);
       expect(endTime - startTime).toBeLessThan(5000); // Should complete within 5 seconds
 
-      // Verify assignment count: 8 shows x 8 stage roles, and 12 rows per
-      // show plus 12 OFF/RED rows on the Monday day-off in total.
+      // Verify assignment count: 8 shows x 8 stage roles, and 12 rows per show.
+      // The Monday day-off carries none — derived, not stored.
       const activeShows = heavyWeek.filter(show => show.status === 'show');
       expect(stage(autoGenResponse.assignments)).toHaveLength(activeShows.length * 8);
-      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 12 + 12);
+      expect(autoGenResponse.assignments).toHaveLength(activeShows.length * 12);
 
       // Quick validation
       const validation = await validate({
