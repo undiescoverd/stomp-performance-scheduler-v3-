@@ -74,6 +74,19 @@ as dormant, write no company RED rows, and confine itself to skipping the forced
 work — the "vacate a role and refill it so this performer gets a day off" pass, which
 is the part that moves casting.
 
+**Dormant means inert, including during generation.** `seedAssignments` currently pins
+manual RED days into `lockedRedDates`, which *constrains role placement* — the generator
+will not cast a performer on their RED date. While a company RED day is active, that
+constraint is arbitrary: it would keep CARY artificially off on a Tuesday for a reason
+that no longer applies, needlessly narrowing the casting pool. So when a company RED date
+exists, dormant flags do **not** feed `lockedRedDates`.
+
+The invariant that keeps this safe: *a dormant flag must always be restorable.* Which
+means if generation does cast a performer on their dormant RED date, that dormant flag is
+dropped — the same self-healing rule `handleAssignmentChange` already applies in the
+editor. Without this, removing the Day Off later would restore a RED day the performer is
+cast into, tripping `RED_DAY_NOT_FULL_DAY`.
+
 Verify the exact shape of Branch A's inputs against the code during implementation;
 the above is the intent, not a literal diff.
 
@@ -88,6 +101,18 @@ the above is the intent, not a literal diff.
   layer cannot be driven into an inconsistent place even if the button is bypassed.
 - **PDF export** — routed through the same derivation, so the printed schedule agrees
   with the screen.
+
+### Readers to confirm before implementing
+
+Every place that answers "is this a RED day?" must go through the derivation, or it will
+disagree with the grid the moment a company RED day is active. Confirmed readers are
+listed above. Two more must be checked during planning, and folded in if they read stored
+`isRedDay` flags rather than the `validate` response:
+
+- The **summary stat cards** above the grid (RED-day counts).
+- The **tours service**, if it validates or counts RED days across bulk-created weeks.
+
+`ViolationBanner` is already safe — it renders the structured `items` from `validate`.
 
 ### Known wart
 
@@ -115,9 +140,20 @@ place to look if the grid and the validator ever disagree about RED days.
 - **Backend**: `autoGenerate` seeded with `existingAssignments` that carry individual REDs,
   run with a company RED day set, asserts those flags survive (the Branch A regression
   above).
+- **Backend, persistence round-trip**: write a schedule holding dormant `isRedDay` flags
+  through `PUT /schedules/:id`, read it back, assert the flags are still there. This is the
+  load-bearing test — see below.
 - **Frontend**: unit test on the derivation in `logic.ts`.
 - **Manual**: auto-generate → add the Day Off → assert no casting moved and the red pills
-  went grey → remove the Day Off → assert the red pills came back unchanged.
+  went grey → **save and reload the page** → remove the Day Off → assert the red pills came
+  back unchanged.
+
+The save-and-reload step is not incidental. The whole reason this design beats
+reconcile-on-mutation is that reversibility does not depend on the session surviving —
+and an in-session toggle test would pass just as happily under the rejected approach. What
+must actually hold is that dormant flags survive the round-trip through `update.ts` and
+back out of `assignments_data`. If any save or load path normalizes assignments, that is
+where this design fails, and only a round-trip test will catch it.
 
 ## Rejected alternatives
 
