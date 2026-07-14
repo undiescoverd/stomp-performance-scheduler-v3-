@@ -122,6 +122,7 @@ The application models theatrical scheduling with these core entities:
 - Cast member eligibility restricted by predefined role assignments
 
 ### Recent Features & Improvements
+- **Schedule Editor UI Overhaul (v3.2)**: Header controls are now focused, mutually-exclusive pill-anchored popovers — time cells (`TimeEditor`), day add/remove (`DayEditor`), and travel/RED status detail (`StatusDetailEditor`, which auto-opens on Travel/Day Off so the Status row never grows). Validation reads as a per-performer table (`ViolationBanner`) driven by structured `items` from the `validate` endpoint; summary stat cards sit above the grid. No algorithm change.
 - **Algorithm Fairness Fix (v3.1)**: Critical fix ensuring all 12 performers get exactly one RED day per week
 - **Smart RED Day Assignment**: Weekday preference (Tuesday-Friday) with intelligent load balancing
 - **Forced RED Day Creation**: Algorithm creates RED days for performers without natural days off

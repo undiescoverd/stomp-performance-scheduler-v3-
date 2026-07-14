@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Show } from "~backend/scheduler/types";
-import { TBC, isKnownTime } from "~backend/scheduler/time";
 import { dowShort, isoDate, shortDate } from "../format";
 import { useSettings } from "@/providers/SettingsProvider";
 
@@ -13,98 +12,22 @@ interface DayEditorProps {
   anchor: HTMLElement | null;
   /** The city this column belongs to. */
   city: string;
-  /** For a travel day: the city being travelled to. */
-  destination: string;
   canAddShow: boolean;
   onClose: () => void;
-  onShowChange: (showId: string, field: "time" | "callTime", value: string) => boolean;
   onAddShowToDate: (date: string) => void;
+  onRemove: (showId: string) => void;
   onRestoreDate: (date: string) => void;
-  onSetDestination: (travelShowId: string, city: string) => void;
-  onSetCompanyRedDay: (showId: string, on: boolean) => void;
-  /** The other day off currently holding the company RED day, if any. */
-  otherCompanyRedDayLabel: string | null;
 }
 
 const GUTTER = 8;
 const POPOVER_WIDTH = 244;
 
-interface TimeFieldProps {
-  label: string;
-  /** The committed value: "HH:MM", or TBC when the time isn't set yet. */
-  value: string;
-  /**
-   * When to write. The show time commits on blur or Enter so a half-typed "0" —
-   * which `<input type="time">` reports as a whole change — never lands in the
-   * grid or the sort. The call time is not parsed by anything, so it commits live.
-   */
-  commitOn: "blur" | "change";
-  onCommit: (value: string) => void;
-}
-
 /**
- * A time and its TBC escape hatch.
- *
- * The native picker stays: it is the only good time UX on desktop and mobile, and
- * a plain text box would throw it away. TBC therefore lives beside it as a toggle
- * rather than as a magic string typed into the field.
- */
-function TimeField({ label, value, commitOn, onCommit }: TimeFieldProps) {
-  const [tbc, setTbc] = useState(!isKnownTime(value));
-  const input = useRef<HTMLInputElement>(null);
-
-  const toggle = () => {
-    if (tbc) {
-      // Off: hand the field back to the picker. The value stays TBC until a real
-      // time is picked, so nothing is silently invented on the user's behalf.
-      setTbc(false);
-      requestAnimationFrame(() => input.current?.focus());
-      return;
-    }
-    setTbc(true);
-    if (input.current) input.current.value = "";
-    onCommit(TBC);
-  };
-
-  // An empty picker is a cleared field, which commits as TBC rather than "".
-  const commit = (next: string) => {
-    if (!next) setTbc(true);
-    onCommit(next);
-  };
-
-  return (
-    <label>
-      <span className="day-editor-time-label">
-        {label}
-        <button
-          type="button"
-          className="day-editor-tbc"
-          aria-pressed={tbc}
-          aria-label={`${label} time to be confirmed`}
-          onClick={toggle}
-        >
-          TBC
-        </button>
-      </span>
-      <input
-        ref={input}
-        type="time"
-        disabled={tbc}
-        defaultValue={isKnownTime(value) ? value : ""}
-        onChange={commitOn === "change" ? (e) => commit(e.target.value) : undefined}
-        onBlur={commitOn === "blur" ? (e) => commit(e.target.value) : undefined}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        }}
-      />
-    </label>
-  );
-}
-
-/**
- * Edits one day in place: status lives in the header select, everything else
- * lives here. Rendered through a portal because a <div> cannot sit inside a
- * <thead>, and positioned from a viewport rect because `offsetTop` on a table
+ * Shapes one day of the week: add a second show, drop the day out of the week,
+ * or put an emptied day back. Times live in the header time cells (TimeEditor)
+ * and status/travel/RED detail lives with the status pill — this popover is
+ * purely add/remove. Rendered through a portal because a <div> cannot sit inside
+ * a <thead>, and positioned from a viewport rect because `offsetTop` on a table
  * cell measures from the table rather than from any positioned ancestor.
  */
 export function DayEditor({
@@ -112,19 +35,14 @@ export function DayEditor({
   show,
   anchor,
   city,
-  destination,
   canAddShow,
   onClose,
-  onShowChange,
   onAddShowToDate,
+  onRemove,
   onRestoreDate,
-  onSetDestination,
-  onSetCompanyRedDay,
-  otherCompanyRedDayLabel,
 }: DayEditorProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const [rejected, setRejected] = useState(false);
   const { dateStyle } = useSettings();
 
   useLayoutEffect(() => {
@@ -149,12 +67,6 @@ export function DayEditor({
 
   const dayLabel = `${dowShort(date)} ${shortDate(date, dateStyle)}`;
 
-  const changeTime = (field: "time" | "callTime", value: string) => {
-    if (!show) return;
-    const accepted = onShowChange(show.id, field, value);
-    if (field === "time") setRejected(!accepted);
-  };
-
   return createPortal(
     <div className="day-editor" ref={ref} role="dialog" aria-label={`Edit ${dayLabel}`} style={pos}>
       <header className="day-editor-head">
@@ -171,79 +83,20 @@ export function DayEditor({
             Restore this day
           </button>
         </>
-      ) : null}
-
-      {show?.status === "show" ? (
+      ) : (
         <>
-          <div className="day-editor-times">
-            <TimeField
-              key={`${show.id}-time`}
-              label="Show"
-              value={show.time}
-              commitOn="blur"
-              onCommit={(v) => changeTime("time", v)}
-            />
-            <TimeField
-              key={`${show.id}-call`}
-              label="Call"
-              value={show.callTime}
-              commitOn="change"
-              onCommit={(v) => changeTime("callTime", v)}
-            />
-          </div>
-          {rejected ? (
-            <p className="day-editor-warn">
-              The other show on {dayLabel} already starts then. Pick a different time.
-            </p>
-          ) : null}
-          {canAddShow ? (
+          {show.status === "show" && canAddShow ? (
             <button type="button" className="day-editor-action" onClick={() => onAddShowToDate(isoDate(show.date))}>
               + Add show to this day
             </button>
           ) : null}
+          {/* No confirm(): every shaping edit is snapshotted and Undo brings the
+              day (and its cast) back. A modal here would be worse than an undo. */}
+          <button type="button" className="day-editor-action is-danger" onClick={() => onRemove(show.id)}>
+            Remove Day
+          </button>
         </>
-      ) : null}
-
-      {show?.status === "travel" ? (
-        <>
-          <label className="day-editor-field">
-            Travel to
-            <input
-              type="text"
-              placeholder="City"
-              defaultValue={destination}
-              onBlur={(e) => onSetDestination(show.id, e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-            />
-          </label>
-          <p className="day-editor-note">
-            This day stays with <b>{city}</b>, the city you're leaving. The divider falls after it.
-          </p>
-        </>
-      ) : null}
-
-      {show?.status === "dayoff" ? (
-        <>
-          <p className="day-editor-note">No shows. The company is dark.</p>
-          <label className="day-editor-checkbox">
-            <input
-              type="checkbox"
-              checked={show.isCompanyRedDay === true}
-              onChange={(e) => onSetCompanyRedDay(show.id, e.target.checked)}
-            />
-            Company RED day
-          </label>
-          <p className="day-editor-note">
-            {show.isCompanyRedDay
-              ? "Counts as everyone's day off, so auto-generate won't place individual RED days elsewhere."
-              : otherCompanyRedDayLabel
-                ? `${otherCompanyRedDayLabel} currently holds the company RED day. Ticking this moves it here.`
-                : "At most one day off per week can carry it."}
-          </p>
-        </>
-      ) : null}
+      )}
     </div>,
     document.body,
   );

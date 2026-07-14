@@ -1,6 +1,11 @@
 import { api } from "encore.dev/api";
 import { Show, Assignment } from "./types";
-import { SchedulingAlgorithm, ConstraintResult } from "./algorithm";
+import { SchedulingAlgorithm, ConstraintResult, ValidationItem } from "./algorithm";
+
+// Re-exported so the structured validation items enter the generated client and
+// the frontend can attribute each issue to a performer / show without parsing
+// the human-readable message text.
+export type { ValidationItem } from "./algorithm";
 
 export interface ValidateScheduleRequest {
   shows: Show[];
@@ -11,6 +16,12 @@ export interface ValidateScheduleResponse {
   isValid: boolean;
   errors: string[];
   warnings: string[];
+  /**
+   * Structured, message-independent attribution for every issue — the same set
+   * `errors`/`warnings` are derived from, each tagged with its rule `code`,
+   * `severity`, and (where known) the `performer` and/or `showId` it concerns.
+   */
+  items: ValidationItem[];
 }
 
 // Validates a schedule against all constraints and business rules.
@@ -27,7 +38,8 @@ export const validate = api<ValidateScheduleRequest, ValidateScheduleResponse>(
     return {
       isValid: result.isValid,
       errors: result.errors,
-      warnings: result.warnings
+      warnings: result.warnings,
+      items: result.items
     };
   }
 );

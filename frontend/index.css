@@ -636,6 +636,8 @@
   cursor: pointer;
 }
 .day-editor-action:hover { border-color: var(--accent); color: var(--accent); }
+.day-editor-action.is-danger { color: var(--danger, #b3242b); }
+.day-editor-action.is-danger:hover { border-color: var(--danger, #b3242b); color: var(--danger, #b3242b); background: var(--red-soft); }
 .day-editor-note { font: 400 11px/1.4 var(--font-sans, inherit); color: var(--muted); margin: 0; }
 .day-editor-checkbox {
   display: flex;
@@ -690,14 +692,24 @@
 /* Show and Call times. One rule for both rows: on the printed call sheet they
    are equally loud, and you read a column top to bottom. tabular-nums keeps the
    digits in a column so times line up down the week. */
-.grid-table .time-cell {
+.grid-table .time-cell { padding: 0; text-align: center; }
+/* The whole cell is a button: click either time to open the time popover. */
+.time-cell-btn {
+  width: 100%;
   font: 600 13px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--fg);
   letter-spacing: 0.02em;
   padding: 7px 6px;
-  text-align: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .14s, border-color .14s, box-shadow .14s;
 }
+.time-cell-btn:hover { background: var(--surface); border-color: var(--border); }
+.time-cell-btn:focus-visible,
+.time-cell-btn.is-open { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 /* An unset time is a placeholder, not a number — a chip, so it never reads as one. */
 .grid-table .time-cell.is-tbc .tbc-chip {
   display: inline-block;
@@ -753,6 +765,29 @@
 .status-select.is-show { background: var(--green-soft); color: var(--green-fg); border-color: var(--green-line); }
 .status-select.is-travel { background: var(--amber-soft); color: var(--amber-fg); border-color: var(--amber-line); }
 .status-select.is-dayoff { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+
+/* The pill and its detail trigger share one compact row, so the Status row never
+   grows: the travel/RED detail lives in a popover (StatusDetailEditor), not here.
+   The flex sits on this inner wrapper — the <th> must stay a table cell. */
+.status-cell-row { display: flex; align-items: center; gap: 4px; }
+/* A small icon button beside the pill — ✈ for travel, a RED dot for a day off —
+   that (re)opens the detail popover. Matches the header's other quiet controls. */
+.status-detail-trigger {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  font-size: 12px; line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .14s, border-color .14s, box-shadow .14s;
+}
+.status-detail-trigger:hover { color: var(--fg); border-color: var(--border); }
+.status-detail-trigger:focus-visible,
+.status-detail-trigger.is-open { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.status-detail-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--red); }
 
 /* special day cell - one merged cell spanning the whole column body */
 .cell-special { padding: 6px; text-align: center; vertical-align: middle; height: 1px; /* lets the box fill it */ }
@@ -1037,37 +1072,66 @@
   padding: 4px 8px; border-radius: 6px;
 }
 
-/* ---------- Roster / validation split panel ---------- */
-.split-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+/* ---------- Roster / validation table ---------- */
+.validation-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-1);
   overflow: hidden;
 }
-@media (max-width: 720px) {
-  .split-card { grid-template-columns: 1fr; }
+.validation-scroll { overflow-x: auto; }
+.validation-table { width: 100%; border-collapse: collapse; font: 13px/1.45 var(--font-body); }
+.validation-table thead th {
+  text-align: left;
+  padding: 10px 18px;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
 }
-.split-half + .split-half { border-left: 1px solid var(--border); }
-@media (max-width: 720px) {
-  .split-half + .split-half { border-left: none; border-top: 1px solid var(--border); }
-}
-.roster-row {
-  display: flex; align-items: center; justify-content: space-between;
+.validation-table th.vt-name-col { width: 160px; }
+.validation-table th.vt-count-col { width: 72px; text-align: right; }
+.validation-table tbody td {
   padding: 10px 18px;
   border-bottom: 1px solid var(--border);
-  font: 13px/1.4 var(--font-body);
+  vertical-align: top;
 }
-.roster-row:last-child { border-bottom: none; }
-.roster-row .name { color: var(--fg); font-weight: 500; }
-.roster-row .count {
+.validation-table tbody tr:last-child td { border-bottom: none; }
+.vt-name { color: var(--fg); font-weight: 600; white-space: nowrap; }
+.vt-count {
+  text-align: right;
   font: 600 12px/1 var(--font-mono);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.roster-row .count.zero { color: var(--faint); }
+.vt-count.zero { color: var(--faint); }
+.vt-issues { width: 100%; }
+.vt-none { color: var(--faint); }
+.vt-issue {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 7px 9px; border-radius: 6px;
+  margin-bottom: 6px;
+}
+.vt-issue:last-child { margin-bottom: 0; }
+.vt-issue .v-ico { flex-shrink: 0; width: 16px; height: 16px; margin-top: 1px; }
+.vt-issue-body { flex: 1; min-width: 0; }
+.vt-issue-body .v-sub { display: block; margin-top: 3px; font: 12px/1.4 var(--font-body); opacity: 0.82; }
+.vt-issue.error { background: var(--red-soft); color: var(--red-fg); }
+.vt-issue.error .v-ico { color: var(--red); }
+.vt-issue.warn { background: var(--amber-soft); color: var(--amber-fg); }
+.vt-issue.warn .v-ico { color: var(--amber); }
+.vt-issue-action { flex-shrink: 0; }
+.vt-group td {
+  padding: 8px 18px;
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}
 
 /* ---------- Empty / placeholder ---------- */
 .empty {

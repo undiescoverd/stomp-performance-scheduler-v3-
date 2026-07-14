@@ -2,6 +2,58 @@
 
 All notable changes to the STOMP Performance Scheduler will be documented in this file.
 
+## [3.2.0] - 2026-07-14
+
+### ✨ Schedule Editor UI Overhaul
+
+Reworks how a week is shaped in the Schedule Editor: the header controls become
+focused, pill-anchored popovers, validation reads as a per-performer table, and
+the summary stats sit above the grid. No change to the scheduling algorithm.
+
+#### Added
+- **Time-cell popovers** (`TimeEditor.tsx`): clicking either the Show or Call time
+  cell opens one popover that edits both times, with a **TBC** toggle beside the
+  native time picker so an unset time never gets silently invented.
+- **Travel / RED status-detail popover** (`StatusDetailEditor.tsx`): the "Travel to"
+  city input and the "Company RED day" checkbox move out of the Status header cell
+  into a small popover anchored to a trigger beside the status pill. It **auto-opens**
+  when a pill is switched to Travel Day / Day Off and reopens from a ✈ / RED-dot icon.
+  This keeps the Status row from growing to fit the tallest cell.
+- **Structured validation items**: the backend `validate` endpoint now returns
+  `items: ValidationItem[]` (rule `code`, `severity`, and where known the
+  `performer` / `showId`) alongside `errors`/`warnings`, so the UI can attribute
+  every issue without parsing message text.
+
+#### Changed
+- **Day-header popover is now Add/Remove only** (`DayEditor.tsx`): times moved to the
+  time cells and travel/RED detail moved to the status pill, leaving this popover to
+  add a second show, remove a day, or restore an emptied day.
+- **Full-width per-performer validation table** (`ViolationBanner.tsx`): validation
+  renders as a Performer / Shows / Issues table driven by the new structured `items`,
+  replacing the flat warning banner.
+- **Summary stat cards moved above the grid** (`ScheduleEditorScreen.tsx`): Shows,
+  Roles Filled, RED-day Coverage, and Conflicts now sit above the schedule grid.
+
+#### Technical
+- **Full mutual exclusion** across the three header popovers (day / time / status
+  detail): opening or changing one always closes the others.
+- Regenerated the frontend Encore client (`frontend/client.ts`) for the new
+  `items` field and `ValidationItem` type.
+- Bumped `encore.dev` `1.50.0` → `1.57.9`.
+
+#### Files Changed
+- `frontend/components/domain/schedule-grid/TimeEditor.tsx` - new time popover
+- `frontend/components/domain/schedule-grid/StatusDetailEditor.tsx` - new status-detail popover
+- `frontend/components/domain/schedule-grid/DayEditor.tsx` - reduced to add/remove
+- `frontend/components/domain/schedule-grid/GridHead.tsx` - popover orchestration + status trigger
+- `frontend/components/domain/schedule-grid/ViolationBanner.tsx` - per-performer table
+- `frontend/screens/ScheduleEditorScreen.tsx` - stat cards above grid
+- `frontend/index.css` - popover / trigger / table styling
+- `backend/scheduler/validate.ts` - expose structured `items`
+- `frontend/client.ts` - regenerated client
+
+---
+
 ## [3.1.0] - 2025-01-17
 
 ### 🎯 Critical Algorithm Fix: RED Day Fairness

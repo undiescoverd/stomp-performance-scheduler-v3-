@@ -11,7 +11,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/jsonwebtoken": "^9.0.10",
     "bcryptjs": "^3.0.2",
-    "encore.dev": "^1.50.0",
+    "encore.dev": "^1.57.9",
     "google-auth-library": "^10.9.0",
     "jsonwebtoken": "^9.0.2"
   },

@@ -139,6 +139,8 @@ export function ScheduleEditorScreen() {
         </div>
       </section>
 
+      <AnalyticsStrip analytics={analytics} shows={editor.shows} redTarget={redTarget} />
+
       <div className="mt-16">
         <ScheduleGrid
           shows={editor.shows}
@@ -166,8 +168,6 @@ export function ScheduleEditorScreen() {
         roster={roster}
         onToggleOverride={editor.handleToggleOverride}
       />
-
-      <AnalyticsStrip analytics={analytics} shows={editor.shows} redTarget={redTarget} />
     </>
   );
 }

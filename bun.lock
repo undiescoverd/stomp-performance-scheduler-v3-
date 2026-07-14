@@ -15,7 +15,7 @@
         "@types/bcryptjs": "^3.0.0",
         "@types/jsonwebtoken": "^9.0.10",
         "bcryptjs": "^3.0.2",
-        "encore.dev": "^1.50.0",
+        "encore.dev": "^1.57.9",
         "google-auth-library": "^10.9.0",
         "jsonwebtoken": "^9.0.2",
       },
@@ -588,7 +588,7 @@
 
     "encodeurl": ["encodeurl@2.0.0", "", {}, "sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg=="],
 
-    "encore.dev": ["encore.dev@1.50.0", "", {}, "sha512-ruPe2xEWOt6LXn5bGK7HArPyjcjgIyKenoXE6dVoOGMnzFfykiZ8/5r2Rc9dn01WhrvgSn2sfDIhooKdxZ+dkA=="],
+    "encore.dev": ["encore.dev@1.57.9", "", {}, "sha512-xJkB4NRAj4DWl2UK+dnixAGkz+2ZMAMrIkjuQ98aAIaXmA2e33EQtji389n+F3omSvdY9qCLmX1Xvq/kjoOEYQ=="],
 
     "enhanced-resolve": ["enhanced-resolve@5.18.3", "", { "dependencies": { "graceful-fs": "^4.2.4", "tapable": "^2.2.0" } }, "sha512-d4lC8xfavMeBjzGr2vECC3fsGXziXZQyJxD868h2M/mBI3PwAuODxAkLkq5HYuvrPYcUtiLzsTo8U3PgX3Ocww=="],
 

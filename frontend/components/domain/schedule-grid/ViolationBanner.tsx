@@ -1,4 +1,5 @@
-import { AlertCircle, AlertTriangle, ShieldCheck, Flag, Users } from "lucide-react";
+import { AlertCircle, AlertTriangle, Flag, ShieldCheck } from "lucide-react";
+import type { ValidationItem } from "~backend/scheduler/validate";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -16,6 +17,8 @@ export interface ValidationResult {
   isValid: boolean;
   errors: string[];
   warnings: string[];
+  /** Structured, per-issue attribution — present once the client is regenerated. */
+  items: ValidationItem[];
 }
 
 interface ViolationBannerProps {
@@ -31,105 +34,119 @@ const KIND_LABEL: Record<FatigueIssue["kind"], string> = {
   "back-to-back": "back-to-back double days",
 };
 
-const MAX_ROWS = 8;
-
 export function ViolationBanner({ result, isValidating, fatigueIssues, roster, onToggleOverride }: ViolationBannerProps) {
   const errors = result?.errors ?? [];
   const warnings = result?.warnings ?? [];
+  const items = result?.items ?? [];
 
-  // Collapse fatigue issues to one row per performer.
-  const byPerformer = new Map<string, { kinds: Set<string>; overridden: boolean }>();
+  // Collapse fatigue issues to one entry per performer (client-side, override-aware).
+  const fatigueByPerformer = new Map<string, { kinds: Set<string>; overridden: boolean }>();
   for (const f of fatigueIssues) {
-    const entry = byPerformer.get(f.performer) ?? { kinds: new Set<string>(), overridden: false };
+    const entry = fatigueByPerformer.get(f.performer) ?? { kinds: new Set<string>(), overridden: false };
     entry.kinds.add(KIND_LABEL[f.kind]);
     entry.overridden = entry.overridden || f.overridden;
-    byPerformer.set(f.performer, entry);
+    fatigueByPerformer.set(f.performer, entry);
   }
-  const fatiguePerformers = [...byPerformer.entries()];
-  const hasIssues = errors.length > 0 || warnings.length > 0 || fatiguePerformers.length > 0;
-  const showValidationHalf = isValidating || hasIssues;
+
+  // Attribute each backend item to a performer only when its name is actually on
+  // the roster — an "Unknown performer" item carries a name that matches nobody,
+  // so it belongs with the show-level issues rather than vanishing.
+  const rosterNames = new Set(roster.map((r) => r.name));
+  const scheduleIssues = items.filter((it) => !it.performer || !rosterNames.has(it.performer));
+
+  const summary = isValidating
+    ? "checking…"
+    : `${errors.length} error${errors.length === 1 ? "" : "s"} · ${warnings.length} warning${warnings.length === 1 ? "" : "s"}`;
 
   return (
-    <div className="split-card mt-16">
-      <div className="split-half">
-        <div className="violation-head">
-          <Users />
-          Company roster
-          <span className="violation-count">{roster.length}</span>
-        </div>
-        {roster.map((r) => (
-          <div key={r.name} className="roster-row">
-            <span className="name">{r.name}</span>
-            <span className={r.showCount === 0 ? "count zero" : "count"}>
-              {r.showCount} show{r.showCount === 1 ? "" : "s"}
-            </span>
-          </div>
-        ))}
+    <div className="validation-card mt-16">
+      <div className="violation-head">
+        <ShieldCheck />
+        Roster &amp; validation
+        <span className="violation-count">{summary}</span>
       </div>
 
-      {showValidationHalf ? (
-        <div className="split-half">
-          <div className="violation-head">
-            <ShieldCheck />
-            Validation
-            <span className="violation-count">
-              {isValidating
-                ? "checking…"
-                : `${errors.length} error${errors.length === 1 ? "" : "s"} · ${warnings.length} warning${warnings.length === 1 ? "" : "s"}`}
-            </span>
-          </div>
+      <div className="validation-scroll">
+        <table className="validation-table">
+          <thead>
+            <tr>
+              <th className="vt-name-col">Performer</th>
+              <th className="vt-count-col">Shows</th>
+              <th>Issues</th>
+            </tr>
+          </thead>
+          <tbody>
+            {roster.map((r) => {
+              const perfItems = items.filter((it) => it.performer === r.name);
+              const fatigue = fatigueByPerformer.get(r.name);
+              const hasIssues = perfItems.length > 0 || !!fatigue;
+              return (
+                <tr key={r.name}>
+                  <td className="vt-name">{r.name}</td>
+                  <td className={r.showCount === 0 ? "vt-count zero" : "vt-count"}>{r.showCount}</td>
+                  <td className="vt-issues">
+                    {!hasIssues ? (
+                      <span className="vt-none">—</span>
+                    ) : (
+                      <>
+                        {perfItems.map((it, i) => (
+                          <IssueLine key={`i${i}`} severity={it.severity} message={it.message} />
+                        ))}
+                        {fatigue ? (
+                          <div className="vt-issue warn">
+                            <Flag className="v-ico" style={{ color: "var(--amber)" }} />
+                            <div className="vt-issue-body">
+                              {[...fatigue.kinds].join(", ")}
+                              <span className="v-sub">
+                                {fatigue.overridden
+                                  ? "RD injury/sickness override applied — reported as a warning, not an error."
+                                  : "Fatigue violation. Apply an RD override only for a genuine injury/sickness cover."}
+                              </span>
+                            </div>
+                            <div className="vt-issue-action">
+                              {fatigue.overridden ? (
+                                <button className="btn btn-ghost btn-sm" onClick={() => onToggleOverride(r.name)}>
+                                  Remove override
+                                </button>
+                              ) : (
+                                <OverrideConfirm performer={r.name} onConfirm={() => onToggleOverride(r.name)} />
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
 
-          {errors.slice(0, MAX_ROWS).map((e, i) => (
-            <div key={`e${i}`} className="violation-row error">
-              <AlertCircle className="v-ico" />
-              <div className="v-msg">{e}</div>
-            </div>
-          ))}
-          {warnings.slice(0, MAX_ROWS).map((w, i) => (
-            <div key={`w${i}`} className="violation-row warn">
-              <AlertTriangle className="v-ico" />
-              <div className="v-msg">{w}</div>
-            </div>
-          ))}
-          {/* Each list truncates at MAX_ROWS independently, so the hidden
-              count is the sum of each list's own overflow — gating on the
-              combined total would silently hide up to MAX_ROWS per list. */}
-          {(() => {
-            const hidden =
-              Math.max(0, errors.length - MAX_ROWS) + Math.max(0, warnings.length - MAX_ROWS);
-            return hidden > 0 ? (
-              <div className="violation-row">
-                <div className="v-msg text-muted">
-                  + {hidden} more issue(s). Fill open roles and resolve conflicts to clear them.
-                </div>
-              </div>
-            ) : null;
-          })()}
+            {scheduleIssues.length > 0 ? (
+              <>
+                <tr className="vt-group">
+                  <td colSpan={3}>Schedule issues</td>
+                </tr>
+                {scheduleIssues.map((it, i) => (
+                  <tr key={`s${i}`} className="vt-group-row">
+                    <td colSpan={3} className="vt-issues">
+                      <IssueLine severity={it.severity} message={it.message} />
+                    </td>
+                  </tr>
+                ))}
+              </>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
-          {fatiguePerformers.map(([performer, info]) => (
-            <div key={performer} className="violation-row fatigue">
-              <Flag className="v-ico" style={{ color: "var(--amber)" }} />
-              <div className="v-msg">
-                <b>{performer}</b> — {[...info.kinds].join(", ")}
-                {info.overridden ? (
-                  <span className="v-sub">RD injury/sickness override applied — reported as a warning, not an error.</span>
-                ) : (
-                  <span className="v-sub">Fatigue violation. Apply an RD override only for a genuine injury/sickness cover.</span>
-                )}
-              </div>
-              <div className="v-action">
-                {info.overridden ? (
-                  <button className="btn btn-ghost btn-sm" onClick={() => onToggleOverride(performer)}>
-                    Remove override
-                  </button>
-                ) : (
-                  <OverrideConfirm performer={performer} onConfirm={() => onToggleOverride(performer)} />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
+function IssueLine({ severity, message }: { severity: ValidationItem["severity"]; message: string }) {
+  return (
+    <div className={`vt-issue ${severity === "error" ? "error" : "warn"}`}>
+      {severity === "error" ? <AlertCircle className="v-ico" /> : <AlertTriangle className="v-ico" />}
+      <div className="vt-issue-body">{message}</div>
     </div>
   );
 }
