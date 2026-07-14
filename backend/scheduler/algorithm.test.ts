@@ -1142,3 +1142,61 @@ describe('derived RED days', () => {
     });
   });
 });
+
+// The OVERWORKED warning compares a performer's show count against the week's
+// FAIR SHARE. Fair share is not shows/cast — every show puts `roles.length`
+// performers on stage, so a 12-strong company covering an 8-show week averages
+// 8 * 8 / 12 = 5.33 shows each, not 0.67.
+describe('OVERWORKED warning — fair share is per STAGE SLOT, not per show', () => {
+  const standardWeek = (): Show[] => ([
+    { id: "tue", date: "2024-01-02", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "wed", date: "2024-01-03", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "thu", date: "2024-01-04", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "fri", date: "2024-01-05", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "sat_mat", date: "2024-01-06", time: "14:00", callTime: "12:30", status: "show" },
+    { id: "sat_eve", date: "2024-01-06", time: "19:30", callTime: "18:00", status: "show" },
+    { id: "sun_mat", date: "2024-01-07", time: "14:00", callTime: "12:30", status: "show" },
+    { id: "sun_eve", date: "2024-01-07", time: "19:30", callTime: "18:00", status: "show" },
+  ]);
+
+  it('a balanced, fully-cast standard week warns NOBODY as overworked', async () => {
+    // THE REGRESSION. The old threshold was ceil((8 shows / 12 cast) * 1.5) = 1,
+    // so every performer with 2+ shows was "potentially overworked" — all twelve
+    // of them, in a perfectly legal, evenly-balanced week. Pure noise, and it sat
+    // next to the RED-day section making a clean schedule look broken.
+    const shows = standardWeek();
+    const algorithm = new SchedulingAlgorithm(shows, CAST_MEMBERS);
+    const result = await algorithm.autoGenerate();
+    expect(result.success).toBe(true);
+
+    const validation = algorithm.validateSchedule(result.assignments);
+    expect(validation.items.filter(i => i.code === 'OVERWORKED')).toEqual([]);
+
+    // Not vacuous: the schedule really is full, and people really do work most
+    // of the week (5-6 shows each) — they are simply not overworked doing so.
+    expect(result.assignments.filter(a => a.role !== 'OFF')).toHaveLength(8 * 8);
+    const counts = CAST_MEMBERS.map(m =>
+      new Set(result.assignments.filter(a => a.performer === m.name && a.role !== 'OFF').map(a => a.showId)).size);
+    expect(Math.max(...counts)).toBeGreaterThanOrEqual(5);
+  });
+
+  it('still fires for a performer genuinely working past the fair share', async () => {
+    // A 16-strong company over 6 shows: fair share is 6 * 8 / 16 = 3 shows, so
+    // the threshold is ceil(3 * 1.5) = 4. PHIL plays every one of the 6 — well
+    // past his share, and without tripping the hard weekly cap of 6.
+    const shows = standardWeek().slice(0, 6);
+    const bigCast: CastMember[] = [
+      ...CAST_MEMBERS,
+      { name: "EXTRA1", eligibleRoles: ["Sarge", "Potato"] },
+      { name: "EXTRA2", eligibleRoles: ["Ringo", "Who"] },
+      { name: "EXTRA3", eligibleRoles: ["Mozzie", "Particle"] },
+      { name: "EXTRA4", eligibleRoles: ["Bin", "Cornish"] },
+    ];
+    const algorithm = new SchedulingAlgorithm(shows, bigCast);
+
+    const assignments: Assignment[] = shows.map(s => ({ showId: s.id, role: 'Sarge', performer: 'PHIL' }));
+    const validation = algorithm.validateSchedule(assignments);
+
+    expect(validation.items.some(i => i.code === 'OVERWORKED' && i.performer === 'PHIL')).toBe(true);
+  });
+});
