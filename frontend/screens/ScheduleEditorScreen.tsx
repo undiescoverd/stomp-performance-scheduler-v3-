@@ -25,7 +25,7 @@ export function ScheduleEditorScreen() {
   const redTarget = castMembers.length || 12;
 
   const fatigueIssues = analyzeFatigue(editor.assignments, editor.shows, castMembers);
-  const analytics = gridAnalytics(editor.assignments, editor.shows, roles);
+  const analytics = gridAnalytics(editor.assignments, editor.shows, roles, castMembers);
   const roster = rosterShowCounts(editor.assignments, editor.shows, castMembers);
   const showCount = editor.shows.filter((s) => s.status === "show").length;
 

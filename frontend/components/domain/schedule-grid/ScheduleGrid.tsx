@@ -4,8 +4,8 @@ import { GridHead } from "./GridHead";
 import { AssignmentCell } from "./AssignmentCell";
 import { SpecialDayCell } from "./SpecialDayCell";
 import { EmptyDayCell } from "./EmptyDayCell";
-import { assignedPerformer, showConflicts, offPerformers, isRedDayFor } from "./logic";
-import { isoDate, splitLocation } from "../format";
+import { assignedPerformer, showConflicts, offPerformers, isRedDayFor, companyRedDate } from "./logic";
+import { isoDate, splitLocation, dowShort, shortDate } from "../format";
 import { columnsForWeek, weekStartOf } from "../week";
 
 interface ScheduleGridProps {
@@ -51,6 +51,15 @@ export function ScheduleGrid({
     ? Math.max(0, ...showShows.map((s) => offPerformers(assignments, castMembers, s.id).length))
     : 0;
   const city = splitLocation(location)[0] || "—";
+
+  // While a company RED day exists it IS everyone's RED day, so the per-performer
+  // toggle has nothing left to say: every OFF chip reads as RED and the chips go
+  // inert until the day off is removed.
+  const companyRed = companyRedDate(shows);
+  const companyRedLabel = companyRed ? `${dowShort(companyRed)} ${shortDate(companyRed, "short")}` : "";
+  const companyRedTitle = companyRed
+    ? `Company RED day on ${companyRedLabel} covers the whole company this week.`
+    : "";
 
   // Columns, not shows: a date the week has emptied out still gets one, so the
   // week always reads Monday to Sunday and a removed day can be put back.
@@ -161,8 +170,15 @@ export function ScheduleGrid({
                         <td key={show.id} className="off-cell">
                           <button
                             className={`off-chip${red ? " red" : ""}`}
+                            disabled={companyRed !== null}
                             onClick={() => onToggleRedDay(date, p)}
-                            title={red ? "RED day — click to make regular OFF" : "Regular OFF — click to set RED day"}
+                            title={
+                              companyRed
+                                ? companyRedTitle
+                                : red
+                                  ? "RED day — click to make regular OFF"
+                                  : "Regular OFF — click to set RED day"
+                            }
                           >
                             {red ? <span className="red-dot" /> : null}
                             {p}
@@ -180,8 +196,15 @@ export function ScheduleGrid({
       <div className="red-legend">
         <CircleSlash />
         <span>
-          <b>RED Day</b> — performer is off the entire day and can't be called for cover. Click any OFF performer to
-          toggle RED-day status.
+          <b>RED Day</b> — performer is off the entire day and can't be called for cover.{" "}
+          {companyRed ? (
+            <>
+              The company RED day on {companyRedLabel} covers everyone this week, so individual RED days are paused.
+              Remove the day off to bring them back.
+            </>
+          ) : (
+            <>Click any OFF performer to toggle RED-day status.</>
+          )}
         </span>
       </div>
     </div>

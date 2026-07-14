@@ -1,8 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { showConflicts, analyzeFatigue, gridAnalytics, rosterShowCounts, splitByCurtain } from "./logic";
+import {
+  showConflicts,
+  analyzeFatigue,
+  gridAnalytics,
+  rosterShowCounts,
+  splitByCurtain,
+  companyRedDate,
+  isRedDayFor,
+} from "./logic";
 import type { Show, Assignment, CastMember } from "~backend/scheduler/types";
 
 const show = (id: string, date: string): Show => ({ id, date, time: "19:30", callTime: "18:00", status: "show" });
+const dayOff = (id: string, date: string, nominated: boolean): Show => ({
+  id,
+  date,
+  time: "00:00",
+  callTime: "00:00",
+  status: "dayoff",
+  isCompanyRedDay: nominated,
+});
 const cast: CastMember[] = [
   { name: "ALEX", eligibleRoles: ["Sarge"] },
   { name: "SAM", eligibleRoles: ["Potato"] },
@@ -60,11 +76,64 @@ describe("gridAnalytics", () => {
       { showId: "s1", role: "Sarge", performer: "ALEX" },
       { showId: "s1", role: "OFF", performer: "SAM", isRedDay: true },
     ];
-    const a = gridAnalytics(assigns, shows, ["Sarge", "Potato"]);
+    const a = gridAnalytics(assigns, shows, ["Sarge", "Potato"], cast);
     expect(a.filled).toBe(1);
     expect(a.totalSlots).toBe(2);
     expect(a.conflicts).toBe(0);
     expect(a.redCovered).toBe(1);
+  });
+
+  it("counts the WHOLE company as RED-covered under a company RED day", () => {
+    // ALEX has no stored flag, and would be undercounted by a stored-flag read.
+    // The company RED day covers him anyway.
+    const shows = [show("s1", "2025-08-05"), dayOff("d1", "2025-08-07", true)];
+    const assigns: Assignment[] = [
+      { showId: "s1", role: "OFF", performer: "SAM", isRedDay: true },
+    ];
+    const a = gridAnalytics(assigns, shows, ["Sarge", "Potato"], cast);
+    expect(a.redCovered).toBe(cast.length);
+  });
+});
+
+// The derived rule: a performer's effective RED date is the company RED date if
+// the week has one, else the date of their own stored isRedDay OFF row.
+describe("companyRedDate", () => {
+  it("is null when a day off is not nominated", () => {
+    expect(companyRedDate([show("s1", "2025-08-05"), dayOff("d1", "2025-08-07", false)])).toBeNull();
+  });
+
+  it("ignores the flag on a day that is not a day off", () => {
+    const stray = { ...show("s1", "2025-08-05"), isCompanyRedDay: true };
+    expect(companyRedDate([stray])).toBeNull();
+  });
+
+  it("picks the EARLIEST flagged day off when more than one is somehow marked", () => {
+    const shows = [dayOff("d2", "2025-08-08", true), dayOff("d1", "2025-08-06", true)];
+    expect(companyRedDate(shows)).toBe("2025-08-06");
+  });
+});
+
+describe("isRedDayFor", () => {
+  const shows = [show("s1", "2025-08-05"), show("s2", "2025-08-06")];
+  const assigns: Assignment[] = [{ showId: "s2", role: "OFF", performer: "SAM", isRedDay: true }];
+
+  it("falls back to the stored flag when there is no company RED day", () => {
+    expect(isRedDayFor(assigns, shows, "SAM", "2025-08-06")).toBe(true);
+    expect(isRedDayFor(assigns, shows, "SAM", "2025-08-05")).toBe(false);
+    expect(isRedDayFor(assigns, shows, "ALEX", "2025-08-06")).toBe(false);
+  });
+
+  it("returns true only on the company RED date, for everyone, once one exists", () => {
+    const withCompanyRed = [...shows, dayOff("d1", "2025-08-07", true)];
+
+    // Covers the whole company, including ALEX who holds no stored flag.
+    expect(isRedDayFor(assigns, withCompanyRed, "ALEX", "2025-08-07")).toBe(true);
+    expect(isRedDayFor(assigns, withCompanyRed, "SAM", "2025-08-07")).toBe(true);
+
+    // ...and SAM's stored Wednesday flag goes DORMANT — same assignments as the
+    // test above, where it read true. Only the company RED day differs.
+    expect(isRedDayFor(assigns, withCompanyRed, "SAM", "2025-08-06")).toBe(false);
+    expect(isRedDayFor(assigns, withCompanyRed, "SAM", "2025-08-05")).toBe(false);
   });
 });
 

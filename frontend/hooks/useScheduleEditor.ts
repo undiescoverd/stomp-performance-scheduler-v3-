@@ -6,6 +6,7 @@ import type { Show, Assignment, Role, DayStatus } from '~backend/scheduler/types
 import { normalizeTime } from '~backend/scheduler/time';
 import { useToast } from '@/components/ui/use-toast';
 import { isoDate } from '@/components/domain/format';
+import { companyRedDate } from '@/components/domain/schedule-grid/logic';
 import {
   addDaysIso,
   addShowToDate,
@@ -409,6 +410,18 @@ export function useScheduleEditor(id?: string) {
   // rules: one RED day per week, and RED blocked while the performer holds a role
   // that day. (Date is a normalized "YYYY-MM-DD" key — see isoDate.)
   const handleToggleRedDay = (date: string, performer: string) => {
+    // A company RED day covers everyone by derivation, so individual picks are
+    // dormant and there is nothing to toggle. The chips are already disabled;
+    // this keeps state consistent if the button is ever bypassed.
+    const company = companyRedDate(shows);
+    if (company) {
+      toast({
+        title: 'Covered by the company RED day',
+        description: `The company RED day on ${company} is everyone's RED day this week. Remove the day off to set individual RED days again.`,
+      });
+      return;
+    }
+
     const showIdsThatDay = shows
       .filter(s => isoDate(s.date) === date && s.status === 'show')
       .map(s => s.id);

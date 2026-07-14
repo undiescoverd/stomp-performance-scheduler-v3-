@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { Show, Assignment, Role, CastMember } from '~backend/scheduler/types';
 import { dowShort, shortDate, isoDate, type DateStyle } from '@/components/domain/format';
+import { isRedDayFor } from '@/components/domain/schedule-grid/logic';
 
 interface PDFExportOptions {
   location: string;
@@ -105,8 +106,10 @@ export class SchedulePDFExporter {
           );
           
           if (assignment) {
-            // Check if this is a RED day
-            const isRedDay = assignment.isRedDay;
+            // No RED-day styling here: this is a STAGE assignment, and a
+            // performer on a RED day holds no role. (It never legitimately
+            // carried isRedDay; under the derived rule it certainly cannot.)
+            //
             // RD injury/sickness fatigue override — marked so a warning-level
             // schedule is legible on paper (jsPDF core fonts lack a flag glyph,
             // so we use a "*" marker + amber; see the notes legend).
@@ -114,11 +117,9 @@ export class SchedulePDFExporter {
 
             row.push({
               content: isOverride ? `${assignment.performer} *` : assignment.performer,
-              styles: isRedDay
-                ? { textColor: [220, 20, 20], fontStyle: 'bold' } // RED day performers in red
-                : isOverride
-                  ? { textColor: [176, 108, 0], fontStyle: 'bold' } // override in amber
-                  : { fontStyle: 'normal' }
+              styles: isOverride
+                ? { textColor: [176, 108, 0], fontStyle: 'bold' } // override in amber
+                : { fontStyle: 'normal' }
             });
           } else {
             row.push('');
@@ -227,16 +228,11 @@ export class SchedulePDFExporter {
           const performer = offPerformers[i] || '';
           
           if (performer) {
-            // Check if they have a RED day. Matched by calendar date (not
-            // showId) so both shows on a two-show day agree with the
-            // on-screen grid, since the RED flag is stored on only one of
-            // that day's shows.
-            const hasRedDay = assignments.some(
-              a => a.performer === performer &&
-                   a.isRedDay &&
-                   isoDate(shows.find(s => s.id === a.showId)?.date ?? '') === isoDate(show.date)
-            );
-            
+            // The same derivation the grid uses, so the printed schedule and the
+            // screen cannot drift. (Matched by calendar date, not showId, so both
+            // shows on a two-show day agree.)
+            const hasRedDay = isRedDayFor(assignments, shows, performer, isoDate(show.date));
+
             row.push({
               content: performer,
               styles: hasRedDay ? {
