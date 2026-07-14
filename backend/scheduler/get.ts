@@ -20,7 +20,7 @@ export const get = api<GetScheduleRequest, GetScheduleResponse>(
     const userId = authData?.userID ?? 'system';
 
     const row = await scheduleDB.queryRow`
-      SELECT id, location, week, shows_data, assignments_data, created_at, updated_at
+      SELECT id, location, week, shows_data, assignments_data, template_id, created_at, updated_at
       FROM schedules
       WHERE id = ${req.id} AND user_id = ${userId}
     `;
@@ -35,6 +35,7 @@ export const get = api<GetScheduleRequest, GetScheduleResponse>(
       week: row.week,
       shows: JSON.parse(row.shows_data) as Show[],
       assignments: JSON.parse(row.assignments_data) as Assignment[],
+      templateId: row.template_id ?? undefined,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)
     };

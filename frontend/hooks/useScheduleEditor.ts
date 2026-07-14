@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import backend from '~backend/client';
 import type { Show, Assignment, Role, DayStatus } from '~backend/scheduler/types';
@@ -11,6 +11,7 @@ import {
   addDaysIso,
   addShowToDate,
   applyShowStatus,
+  applyTemplate,
   dayDiffIso,
   nextMondayFrom,
   nextShow,
@@ -19,18 +20,36 @@ import {
   setCompanyRedDay,
   setDestination,
   sortShows,
+  STANDARD_TEMPLATE_SLOTS,
   timeIsFree,
   todayIso,
   weekStartOf,
 } from '@/components/domain/week';
 
+/** Seed passed from the New Schedule modal via router state. */
+export interface NewScheduleSeed {
+  location: string;
+  weekStart: string;
+  shows: Show[];
+  templateId?: string;
+}
+
 export function useScheduleEditor(id?: string) {
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Seed handed in by the New Schedule modal (venue + week-start + resolved
+  // shows + the template they came from). Absent on a direct /schedule/new hit.
+  const seed = (routerLocation.state as { seed?: NewScheduleSeed } | null)?.seed;
+
   const [location, setLocation] = useState('');
   const [week, setWeek] = useState('');
+  // The template this schedule was created from (if any), so the editor can
+  // offer "Update template". Set from the seed on a new schedule, from the
+  // loaded record when editing, or when "Save as template" mints a new one.
+  const [templateId, setTemplateId] = useState<string | undefined>(undefined);
   const [weekStartDate, setWeekStartDate] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
   /**
@@ -84,7 +103,7 @@ export function useScheduleEditor(id?: string) {
 
   // Create schedule mutation
   const createMutation = useMutation({
-    mutationFn: (data: { location: string; week: string; shows: Show[]; assignments?: Assignment[] }) =>
+    mutationFn: (data: { location: string; week: string; shows: Show[]; assignments?: Assignment[]; templateId?: string }) =>
       backend.scheduler.create(data),
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] });
@@ -200,47 +219,13 @@ export function useScheduleEditor(id?: string) {
   // calendar date for users away from UTC — e.g. Monday 09:00 in Sydney is
   // Sunday 23:00 UTC, so the seeded week started a day early.
 
-  // Helper function to calculate week number from date
-  const getWeekNumberFromDate = (dateIso: string): number => {
-    const date = new Date(`${isoDate(dateIso)}T00:00:00Z`);
-    const startOfYear = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-    const pastDaysOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86_400_000);
-    return Math.ceil((pastDaysOfYear + startOfYear.getUTCDay() + 1) / 7);
-  };
-
-  // Helper function to generate shows from week start date
-  const generateShowsFromWeekStart = (weekStartDate: string): Show[] => {
-    const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
-
-    const defaultShows: Show[] = [
-      // Tuesday - 8pm Show, 5pm Call
-      { id: generateId(), date: addDaysIso(weekStartDate, 1), time: '20:00', callTime: '17:00', status: 'show' },
-      // Wednesday - 8pm Show, 6pm Call
-      { id: generateId(), date: addDaysIso(weekStartDate, 2), time: '20:00', callTime: '18:00', status: 'show' },
-      // Thursday - 8pm Show, 6pm Call
-      { id: generateId(), date: addDaysIso(weekStartDate, 3), time: '20:00', callTime: '18:00', status: 'show' },
-      // Friday - 8pm Show, 6pm Call
-      { id: generateId(), date: addDaysIso(weekStartDate, 4), time: '20:00', callTime: '18:00', status: 'show' },
-      // Saturday matinee - 3pm Show
-      { id: generateId(), date: addDaysIso(weekStartDate, 5), time: '15:00', callTime: '13:30', status: 'show' },
-      // Saturday evening - 8pm Show
-      { id: generateId(), date: addDaysIso(weekStartDate, 5), time: '20:00', callTime: '18:00', status: 'show' },
-      // Sunday matinee - 3pm Show
-      { id: generateId(), date: addDaysIso(weekStartDate, 6), time: '15:00', callTime: '13:30', status: 'show' },
-      // Sunday evening - 6pm Show
-      { id: generateId(), date: addDaysIso(weekStartDate, 6), time: '18:00', callTime: '16:30', status: 'show' }
-    ];
-
-    return defaultShows;
-  };
-
   // Handle week start date change
   const handleWeekStartDateChange = (newDate: string) => {
     const previousWeekStart = weekStartDate;
     setWeekStartDate(newDate);
 
-    // Auto-calculate week number
-    setWeek(getWeekNumberFromDate(newDate).toString());
+    // `week` is a free-text label now, not an auto-calculated number — leave it
+    // to the user. Only the show dates shift with the week.
 
     // Update existing shows dates if we have shows
     if (shows.length > 0) {
@@ -288,6 +273,7 @@ export function useScheduleEditor(id?: string) {
       const schedule = scheduleData.schedule;
       setLocation(schedule.location);
       setWeek(schedule.week);
+      setTemplateId(schedule.templateId);
       // The generated client's dateReviver turns show.date into a Date; if we
       // send that straight back the client re-serializes it as a full ISO
       // datetime ("...T00:00:00.000Z"), which breaks the backend's YYYY-MM-DD
@@ -306,27 +292,36 @@ export function useScheduleEditor(id?: string) {
     }
   }, [scheduleData]);
 
-  // Initialize default values for new schedule
+  // Initialize a new schedule from the modal's seed (venue + week-start +
+  // resolved shows + template). A direct /schedule/new hit with no seed falls
+  // back to the built-in Standard week so the editor is never empty by accident.
   useEffect(() => {
-    if (!isEditing) {
-      const nextMonday = nextMondayFrom(todayIso());
+    if (isEditing) return;
 
-      setWeek(getWeekNumberFromDate(nextMonday).toString());
-      setLocation('London');
-      setWeekStartDate(nextMonday);
+    const start = seed?.weekStart ? isoDate(seed.weekStart) : nextMondayFrom(todayIso());
+    setLocation(seed?.location ?? '');
+    setWeek(''); // free-text label, blank by default
+    setWeekStartDate(start);
+    setTemplateId(seed?.templateId);
 
-      // Generate default shows
-      const defaultShows = generateShowsFromWeekStart(nextMonday);
-      setShows(defaultShows);
-      baselineShows.current = defaultShows;
-    }
+    // A seed always wins — even an empty shows array (the "Blank week" choice).
+    // Only a seedless visit falls back to Standard.
+    const initialShows = seed
+      ? (seed.shows ?? []).map((s) => ({ ...s, date: isoDate(s.date) }))
+      : applyTemplate(STANDARD_TEMPLATE_SLOTS, start);
+    setShows(initialShows);
+    baselineShows.current = initialShows;
+    // Seed is read once at mount; router state doesn't change under us.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing]);
 
   const handleSave = async () => {
-    if (!location.trim() || !week.trim()) {
+    // `week` is now an optional free-text label, so only the location is
+    // required — the old guard rejected every blank-label schedule.
+    if (!location.trim()) {
       toast({
         title: "Validation Error",
-        description: "Please fill in city and week",
+        description: "Please enter a location",
         variant: "destructive"
       });
       return;
@@ -353,11 +348,13 @@ export function useScheduleEditor(id?: string) {
       } else {
         // Include assignments so casting done before the first save (e.g.
         // auto-generate on /schedule/new) survives the create round-trip.
+        // templateId records which template this week came from.
         await createMutation.mutateAsync({
           location,
           week,
           shows,
-          assignments
+          assignments,
+          templateId
         });
       }
     } catch (error) {
@@ -620,6 +617,8 @@ export function useScheduleEditor(id?: string) {
     setLocation,
     week,
     setWeek,
+    templateId,
+    setTemplateId,
     weekStartDate,
     shows,
     assignments,

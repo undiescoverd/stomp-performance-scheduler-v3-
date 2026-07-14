@@ -13,8 +13,7 @@ import {
   GetToursResponse,
   DeleteTourResponse,
   DeleteTourWeekResponse,
-  Show,
-  DayStatus
+  Show
 } from "./tour_types";
 
 // Creates a tour with bulk schedule generation
@@ -76,47 +75,44 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
       const errors: string[] = [];
       const createdWeekData: Array<{
         id: string;
-        weekNumber: number;
         startDate: string;
         endDate: string;
         showCount: number;
         locationCity: string;
+        week: string;
       }> = [];
 
       // Generate schedules for each week
       for (const tourWeek of req.weeks) {
+        // A week is identified by its venue + date range, so label failures by
+        // city rather than an arbitrary week number.
+        const weekTag = `${tourWeek.locationCity} (${tourWeek.startDate})`;
         try {
-          let shows: Show[];
+          // Shows are resolved client-side from the chosen template; the backend
+          // persists them like a normal create and does no offset math.
+          const shows: Show[] = tourWeek.shows ?? [];
+          const weekLabel = tourWeek.week ?? "";
 
-          if (!tourWeek.isStandard && tourWeek.customShows) {
-            shows = tourWeek.customShows;
-          } else {
-            // Generate standard week (real dates from the week's Monday),
-            // accounting for travel day.
-            shows = generateStandardWeekShows(tourWeek.startDate, tourWeek.travelDay);
-          }
-
-          console.log(`Creating week ${tourWeek.weekNumber} for tour ${tourId} in ${tourWeek.locationCity}`);
+          console.log(`Creating week for tour ${tourId} in ${tourWeek.locationCity}`);
 
           // Create schedule entry with location_city
           const scheduleId = generateId();
-          const week = `Week ${tourWeek.weekNumber}`;
 
           await scheduleDB.exec`
             INSERT INTO schedules (id, location, location_city, week, shows_data, assignments_data, tour_id, tour_segment, user_id, created_at, updated_at)
-            VALUES (${scheduleId}, ${tourWeek.locationCity}, ${tourWeek.locationCity}, ${week}, ${JSON.stringify(shows)}, ${JSON.stringify([])}, ${tourId}, ${req.segmentName}, ${userId}, ${now}, ${now})
+            VALUES (${scheduleId}, ${tourWeek.locationCity}, ${tourWeek.locationCity}, ${weekLabel}, ${JSON.stringify(shows)}, ${JSON.stringify([])}, ${tourId}, ${req.segmentName}, ${userId}, ${now}, ${now})
           `;
 
-          console.log(`Week ${tourWeek.weekNumber} schedule ${scheduleId} created`);
+          console.log(`Week schedule ${scheduleId} created for ${weekTag}`);
 
           // Track created week data
           createdWeekData.push({
             id: scheduleId,
-            weekNumber: tourWeek.weekNumber,
             startDate: tourWeek.startDate,
             endDate: tourWeek.endDate,
-            showCount: shows.length,
-            locationCity: tourWeek.locationCity
+            showCount: shows.filter((s) => s.status === "show").length,
+            locationCity: tourWeek.locationCity,
+            week: weekLabel
           });
 
           // Auto-generate assignments for this week
@@ -128,23 +124,23 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
             if (autoGenResult.success && autoGenResult.assignments.length > 0) {
               // Update schedule with generated assignments
               await scheduleDB.exec`
-                UPDATE schedules 
+                UPDATE schedules
                 SET assignments_data = ${JSON.stringify(autoGenResult.assignments)}, updated_at = ${now}
                 WHERE id = ${scheduleId}
               `;
-              console.log(`Auto-generated assignments for week ${tourWeek.weekNumber}`);
+              console.log(`Auto-generated assignments for ${weekTag}`);
             } else if (autoGenResult.errors) {
-              errors.push(`Week ${tourWeek.weekNumber}: ${autoGenResult.errors.join(", ")}`);
+              errors.push(`${weekTag}: ${autoGenResult.errors.join(", ")}`);
             }
           } catch (autoGenError) {
-            console.error(`Auto-generation failed for week ${tourWeek.weekNumber}:`, autoGenError);
-            errors.push(`Week ${tourWeek.weekNumber}: Failed to generate assignments - ${autoGenError}`);
+            console.error(`Auto-generation failed for ${weekTag}:`, autoGenError);
+            errors.push(`${weekTag}: Failed to generate assignments - ${autoGenError}`);
           }
 
           createdWeeks++;
         } catch (weekError) {
-          console.error(`Failed to create week ${tourWeek.weekNumber}:`, weekError);
-          errors.push(`Week ${tourWeek.weekNumber}: Failed to create schedule - ${weekError}`);
+          console.error(`Failed to create week ${weekTag}:`, weekError);
+          errors.push(`${weekTag}: Failed to create schedule - ${weekError}`);
         }
       }
 
@@ -268,35 +264,34 @@ export const getTours = api<{ grouped?: boolean }, GetToursResponse>(
           weekRowsArray.push(...weekRows);
         }
 
-        // `week` is stored as text ("Week 1", "Week 10", ...), so sorting by
-        // the column itself is lexicographic (Week 10 before Week 2). Parse
-        // the actual number back out and sort/label numerically instead.
-        const parseWeekNumber = (week: string): number => {
-          const match = /\d+/.exec(week ?? "");
-          return match ? parseInt(match[0], 10) : 0;
-        };
-
+        // Week numbers were dropped: a week is identified by its venue + date
+        // range. Derive each week's start/end from its shows_data (there is no
+        // start/end column) and sort chronologically by start date. The dates
+        // are YYYY-MM-DD strings, so a lexicographic compare is chronological.
         const weeks = weekRowsArray
-          .map((week: any) => ({ row: week, weekNumber: parseWeekNumber(week.week) }))
-          .sort((a, b) => a.weekNumber - b.weekNumber)
-          .map(({ row: week, weekNumber }) => {
-            let showCount = 0;
+          .map((week: any) => {
+            let shows: any[] = [];
             try {
-              const showsData = week.shows_data ? JSON.parse(week.shows_data) : [];
-              showCount = Array.isArray(showsData) ? showsData.length : 0;
+              const parsed = week.shows_data ? JSON.parse(week.shows_data) : [];
+              shows = Array.isArray(parsed) ? parsed : [];
             } catch (e) {
-              showCount = 0;
+              shows = [];
             }
+            const dates = shows
+              .map((s) => String(s?.date ?? ""))
+              .filter(Boolean)
+              .sort();
 
             return {
               id: week.id,
-              weekNumber,
-              startDate: '',
-              endDate: '',
-              showCount: showCount,
-              locationCity: week.location_city || 'Unknown'
+              startDate: dates[0] ?? '',
+              endDate: dates[dates.length - 1] ?? '',
+              showCount: shows.filter((s) => s?.status === "show").length,
+              locationCity: week.location_city || 'Unknown',
+              week: week.week ?? ''
             };
-          });
+          })
+          .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
         // Parse cast member IDs
         let castMemberIds: string[] = [];
@@ -450,68 +445,6 @@ export const deleteTourWeek = api<{ tourId: string; weekId: string }, DeleteTour
     }
   }
 );
-
-// Helper function to generate standard week shows, accounting for travel days.
-// `weekStartDate` is the Monday of the week (YYYY-MM-DD); each day-name maps to
-// a real calendar date so the resulting schedule is editable like any other.
-function generateStandardWeekShows(
-  weekStartDate: string,
-  travelDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'none',
-): Show[] {
-  const shows: Show[] = [];
-
-  const DAY_OFFSET: Record<string, number> = {
-    monday: 0, tuesday: 1, wednesday: 2, thursday: 3, friday: 4, saturday: 5, sunday: 6,
-  };
-  // Noon-UTC anchor keeps the calendar date correct across timezones/DST.
-  const base = new Date(`${weekStartDate}T12:00:00Z`);
-  const dateFor = (dayName: string): string => {
-    const off = DAY_OFFSET[dayName.toLowerCase()] ?? 0;
-    return new Date(base.getTime() + off * 86400000).toISOString().slice(0, 10);
-  };
-
-  // Base schedule: 8 shows (Mon-Sat with matinee on Wed/Sat)
-  const baseSchedule = [
-    { day: "Monday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
-    { day: "Tuesday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
-    { day: "Wednesday", time: "14:30", callTime: "13:30", status: "show" as DayStatus },
-    { day: "Wednesday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
-    { day: "Thursday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
-    { day: "Friday", time: "19:30", callTime: "18:30", status: "show" as DayStatus },
-    { day: "Saturday", time: "14:30", callTime: "13:30", status: "show" as DayStatus },
-    { day: "Saturday", time: "19:30", callTime: "18:30", status: "show" as DayStatus }
-  ];
-
-  // Filter out shows on travel day
-  const filteredSchedule = baseSchedule.filter(show => {
-    if (!travelDay || travelDay === 'none') return true;
-    return show.day.toLowerCase() !== travelDay.toLowerCase();
-  });
-
-  // Add travel day if specified
-  if (travelDay && travelDay !== 'none') {
-    const travelDayCapitalized = travelDay.charAt(0).toUpperCase() + travelDay.slice(1);
-    filteredSchedule.push({
-      day: travelDayCapitalized,
-      time: "Travel",
-      callTime: "Travel",
-      status: "travel" as DayStatus
-    });
-  }
-
-  // Convert to Show objects with real calendar dates
-  filteredSchedule.forEach((show) => {
-    shows.push({
-      id: generateId(),
-      date: dateFor(show.day),
-      time: show.time,
-      callTime: show.callTime,
-      status: show.status
-    });
-  });
-
-  return shows;
-}
 
 // Helper function to generate unique IDs
 function generateId(): string {

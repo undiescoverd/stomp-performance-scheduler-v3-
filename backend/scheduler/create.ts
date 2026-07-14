@@ -11,6 +11,10 @@ export interface CreateScheduleRequest {
   // Assignments made before the first save (e.g. auto-generate on a new
   // schedule) — without this the create round-trip would silently drop them.
   assignments?: Assignment[];
+  // The template this schedule was created from (standalone/tour flows resolve
+  // shows from it client-side); recorded so the editor can offer "Update
+  // template" later. Omitted for a blank week.
+  templateId?: string;
 }
 
 export interface CreateScheduleResponse {
@@ -28,19 +32,21 @@ export const create = api<CreateScheduleRequest, CreateScheduleResponse>(
     const now = new Date();
     const assignments = req.assignments ?? [];
 
+    const templateId = req.templateId ?? null;
     const schedule: Schedule = {
       id,
       location: req.location,
       week: req.week,
       shows: req.shows,
       assignments,
+      templateId: req.templateId,
       createdAt: now,
       updatedAt: now
     };
 
     await scheduleDB.exec`
-      INSERT INTO schedules (id, location, week, shows_data, assignments_data, user_id, created_at, updated_at)
-      VALUES (${id}, ${req.location}, ${req.week}, ${JSON.stringify(req.shows)}, ${JSON.stringify(assignments)}, ${userId}, ${now}, ${now})
+      INSERT INTO schedules (id, location, week, shows_data, assignments_data, template_id, user_id, created_at, updated_at)
+      VALUES (${id}, ${req.location}, ${req.week}, ${JSON.stringify(req.shows)}, ${JSON.stringify(assignments)}, ${templateId}, ${userId}, ${now}, ${now})
     `;
 
     return { schedule };
