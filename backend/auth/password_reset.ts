@@ -53,10 +53,11 @@ function isTrustedOrigin(origin: string): boolean {
   const host = url.hostname;
 
   if (url.protocol === "https:") {
-    return (
-      host === "stomp-performance-scheduler-hxdi.frontend.encr.app" ||
-      host.endsWith("-stomp-performance-scheduler-hxdi.frontend.encr.app")
-    );
+    // Only the per-environment frontends (production-…, staging-…) are real,
+    // served hosts. The env-less "<appid>.frontend.encr.app" maps to no
+    // deployment (Encore's edge 500s "application not found"), so it must not
+    // be trusted — a reset link pointing there would be dead.
+    return host.endsWith("-stomp-performance-scheduler-hxdi.frontend.encr.app");
   }
 
   if (url.protocol === "http:") {
