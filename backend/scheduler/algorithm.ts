@@ -1824,10 +1824,27 @@ export class SchedulingAlgorithm {
         }
     }
 
-    // Check show distribution with specific suggestions
+    // Check show distribution with specific suggestions.
+    //
+    // The fair share is per STAGE SLOT, not per show: every show puts
+    // roles.length performers on stage, so a 12-strong company covering an
+    // 8-show week averages 8 * 8 / 12 = 5.33 shows each. Dividing shows by cast
+    // size instead (8 / 12 = 0.67) put the threshold at 2 shows and warned that
+    // all twelve performers were "potentially overworked" in a perfectly legal,
+    // evenly-balanced week.
+    //
+    // Derived from the week's SHAPE rather than from `assignments`, so the
+    // threshold doesn't drift while a schedule is being filled in and flag an
+    // early pick as overworked. Note the hard weekly cap (rule 5, max 6 shows)
+    // is the real protection and errors independently; this warning only speaks
+    // to lopsided distribution, so with a full 12/8 company it correctly stays
+    // silent — there is no room to be overworked relative to your peers without
+    // already breaching the cap.
     const showCounts = this.getShowCounts(assignments, activeShows);
-    const averageShows = activeShows.length > 0 ? activeShows.length / this.castMembers.length : 0;
-    
+    const averageShows = this.castMembers.length > 0
+      ? (activeShows.length * this.roles.length) / this.castMembers.length
+      : 0;
+
     for (const [performer, count] of Object.entries(showCounts)) {
       if (count < 2 && count > 0 && activeShows.length >= 4) {
         addWarning("UNDERUTILIZED", `${performer} only has ${count} show${count === 1 ? '' : 's'} (underutilized)`, { performer });
