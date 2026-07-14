@@ -60,8 +60,8 @@ export function TourFolder({ tour, defaultOpen, onDeleteTour, onDeleteWeek }: To
       <div className="tour-weeks">
         <RouteTimeline weeks={weeks} />
         <TourSummaryBar castCount={castCount} totalShows={totalShows} weekCount={weeks.length} />
-        {weeks.map((w) => (
-          <TourWeekRow key={w.id} week={w} onDelete={(week) => onDeleteWeek(tour, week)} />
+        {weeks.map((w, i) => (
+          <TourWeekRow key={w.id} week={w} index={i} onDelete={(week) => onDeleteWeek(tour, week)} />
         ))}
       </div>
     </div>

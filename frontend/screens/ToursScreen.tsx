@@ -133,7 +133,7 @@ export function ToursScreen() {
       <AlertDialog open={!!deleteWeekTarget} onOpenChange={(o) => !o && setDeleteWeekTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove week {deleteWeekTarget?.week.weekNumber}?</AlertDialogTitle>
+            <AlertDialogTitle>Remove the {deleteWeekTarget?.week.locationCity} week?</AlertDialogTitle>
             <AlertDialogDescription>
               This deletes the {deleteWeekTarget?.week.locationCity} week schedule from this tour. This cannot be undone.
             </AlertDialogDescription>

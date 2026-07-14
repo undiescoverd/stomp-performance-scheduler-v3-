@@ -132,7 +132,10 @@ export function GridHead({
         {segments.map((seg, i) => (
           <th key={`${seg.city}-${i}`} className={`city-head${i > 0 ? " city-divider" : ""}`} colSpan={seg.span}>
             <div className="city-name">{seg.city}</div>
-            <div className="city-week">Week {week || "—"}</div>
+            {/* `week` is now an optional free-text label (default ""). Render it
+                verbatim only when set — the old `Week {week}` doubled a stored
+                "Week 31" into "WEEK WEEK 31". */}
+            {week ? <div className="city-week">{week}</div> : null}
           </th>
         ))}
       </tr>

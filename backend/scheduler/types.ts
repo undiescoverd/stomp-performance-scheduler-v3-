@@ -49,8 +49,32 @@ export interface Schedule {
   week: string;
   shows: Show[];
   assignments: Assignment[];
+  // The template this schedule was created from, if any — lets the editor offer
+  // "Update template". May dangle if that template was later deleted.
+  templateId?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * One day of a reusable week template, stored Monday-relative so it can be
+ * replayed onto any week-start. `dayOffset` 0 = Monday … 6 = Sunday; two slots
+ * may share an offset (a double-show day). The backend stores these verbatim —
+ * all offset↔date math lives in frontend/components/domain/week.ts.
+ */
+export interface TemplateSlot {
+  dayOffset: number; // 0 = Monday … 6 = Sunday
+  time: string; // "19:30" | "Travel"
+  callTime: string;
+  status: DayStatus;
+  isCompanyRedDay?: boolean;
+}
+
+/** A saved, owner-scoped week template: a captured Monday-relative day pattern. */
+export interface Template {
+  id: string;
+  name: string;
+  slots: TemplateSlot[];
 }
 
 export const CAST_MEMBERS: CastMember[] = [

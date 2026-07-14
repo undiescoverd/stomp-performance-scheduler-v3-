@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, CalendarRange, Map, Users, LogOut } from "lucide-react";
+import { LayoutDashboard, CalendarRange, LayoutTemplate, Map, Users, LogOut } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { FEATURE_FLAGS } from "@/config/features";
 
@@ -22,6 +22,13 @@ const NAV_ITEMS: NavItem[] = [
     to: "/schedule/new",
     icon: <CalendarRange />,
     matchPrefix: "/schedule",
+  },
+  {
+    id: "templates",
+    label: "Templates",
+    to: "/templates",
+    icon: <LayoutTemplate />,
+    matchPrefix: "/templates",
   },
   {
     id: "tours",

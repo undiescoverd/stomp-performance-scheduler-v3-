@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   CalendarDays,
@@ -13,7 +14,8 @@ import { StatCard } from "@/components/domain/StatCard";
 import { ScheduleCard } from "@/components/domain/ScheduleCard";
 import { SchedulePill } from "@/components/domain/SchedulePill";
 import { WeekStrip } from "@/components/domain/WeekStrip";
-import { splitLocation, dateRange, weekLabel } from "@/components/domain/format";
+import { NewScheduleModal } from "@/components/domain/NewScheduleModal";
+import { splitLocation, dateRange } from "@/components/domain/format";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { useSettings } from "@/providers/SettingsProvider";
 import { FEATURE_FLAGS } from "@/config/features";
@@ -21,9 +23,11 @@ import { FEATURE_FLAGS } from "@/config/features";
 export function DashboardScreen() {
   const { schedules, spotlight, stats, isLoading, error, refetch } = useDashboardStats();
   const { dateStyle } = useSettings();
+  const [newOpen, setNewOpen] = useState(false);
 
   return (
     <>
+      <NewScheduleModal open={newOpen} onOpenChange={setNewOpen} />
       <PageHeader
         eyebrow="2025 Season"
         title="Performance Schedules"
@@ -80,7 +84,12 @@ export function DashboardScreen() {
             <div>
               <div className="kicker">Current week</div>
               <h2 className="h1 mt-8">
-                {splitLocation(spotlight.location)[0]} — {weekLabel(spotlight.week)}
+                {splitLocation(spotlight.location)[0]} · {dateRange(spotlight.shows, dateStyle)}
+                {spotlight.week ? (
+                  <span className="text-muted" style={{ fontSize: 14, fontWeight: 500 }}>
+                    {"  "}· {spotlight.week}
+                  </span>
+                ) : null}
               </h2>
             </div>
             <Link className="btn btn-primary btn-sm" to={`/schedule/${spotlight.id}`}>
@@ -119,9 +128,9 @@ export function DashboardScreen() {
             <p className="lead mt-8">Every venue week in the current season.</p>
           </div>
           <div className="row-wrap">
-            <Link className="btn btn-primary btn-sm" to="/schedule/new">
+            <button className="btn btn-primary btn-sm" onClick={() => setNewOpen(true)}>
               <Plus /> New Schedule
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -142,9 +151,9 @@ export function DashboardScreen() {
             <p className="text-muted" style={{ maxWidth: "42ch" }}>
               Create your first STOMP performance schedule to start assigning cast and planning shows.
             </p>
-            <Link className="btn btn-primary btn-sm" to="/schedule/new">
+            <button className="btn btn-primary btn-sm" onClick={() => setNewOpen(true)}>
               <Plus /> Create first schedule
-            </Link>
+            </button>
           </div>
         ) : (
           <div className="sched-grid">

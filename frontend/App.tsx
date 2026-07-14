@@ -7,6 +7,7 @@ import { DashboardScreen } from '@/screens/DashboardScreen';
 import { ScheduleEditorScreen } from '@/screens/ScheduleEditorScreen';
 import { CompanyScreen } from '@/screens/CompanyScreen';
 import { ToursScreen } from '@/screens/ToursScreen';
+import { TemplatesScreen } from '@/screens/TemplatesScreen';
 import { ResetPasswordScreen } from '@/screens/ResetPasswordScreen';
 import { FEATURE_FLAGS } from '@/config/features';
 
@@ -45,6 +46,7 @@ function AppRoutes() {
         <Route path="/" element={<DashboardScreen />} />
         <Route path="/schedule/new" element={<ScheduleEditorScreen />} />
         <Route path="/schedule/:id" element={<ScheduleEditorScreen />} />
+        <Route path="/templates" element={<TemplatesScreen />} />
         <Route path="/company" element={<CompanyScreen />} />
         {FEATURE_FLAGS.MULTI_COUNTRY_TOURS && (
           <Route path="/tours" element={<ToursScreen />} />

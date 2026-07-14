@@ -1,5 +1,5 @@
-import type { Show, DayStatus } from "~backend/scheduler/types";
-import { isKnownTime } from "~backend/scheduler/time";
+import type { Show, DayStatus, TemplateSlot } from "~backend/scheduler/types";
+import { isKnownTime, normalizeTime } from "~backend/scheduler/time";
 import { isoDate } from "./format";
 
 /**
@@ -328,3 +328,111 @@ export function setCompanyRedDay(shows: Show[], showId: string, on: boolean): Sh
     return show.status === "dayoff" && show.isCompanyRedDay ? { ...show, isCompanyRedDay: false } : show;
   });
 }
+
+// --- Week templates: capture and apply ---------------------------------------
+//
+// A template is a Monday-relative day pattern (TemplateSlot[]). Both entry
+// points — the standalone New Schedule modal and the tour wizard — resolve a
+// template + a week-start into Show[] through applyTemplate; the editor's
+// "Save as template" captures the current week through showsToSlots. The
+// backend stores slots verbatim, so ALL offset↔date math lives here.
+
+let slotIdSeq = 0;
+/** A fresh, collision-free id for a show minted from a template slot. */
+function freshShowId(index: number): string {
+  slotIdSeq = (slotIdSeq + 1) % 1_000_000;
+  return `${Date.now().toString(36)}-${index}-${slotIdSeq}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Capture a week as a reusable template: each show becomes a Monday-relative
+ * slot. Cast, venue (`location`) and per-show `id` are dropped — a template is
+ * a shape, not an assignment. Ordered by offset then time so the stored pattern
+ * reads chronologically.
+ */
+export function showsToSlots(shows: Show[], weekStartIso: string): TemplateSlot[] {
+  const start = isoDate(weekStartIso);
+  // At most one company RED day per schedule (the same invariant the editor's
+  // setCompanyRedDay upholds). Keep only the first valid flag so malformed input
+  // can't capture a template with two.
+  let companyRedCaptured = false;
+  return sortShows(shows).map((s) => {
+    const slot: TemplateSlot = {
+      dayOffset: dayDiffIso(isoDate(s.date), start),
+      time: s.time,
+      callTime: s.callTime,
+      status: s.status,
+    };
+    // isCompanyRedDay is only meaningful on a day off (see applyShowStatus).
+    if (!companyRedCaptured && s.isCompanyRedDay && s.status === "dayoff") {
+      slot.isCompanyRedDay = true;
+      companyRedCaptured = true;
+    }
+    return slot;
+  });
+}
+
+/**
+ * Replay a template onto a chosen week-start, producing fresh Show[] with no
+ * cast and no venue. `dayOffset` is added to the Monday, so offsets never
+ * drift. Show times route through `normalizeTime` (an empty/unknown show time
+ * becomes TBC); travel and day-off rows keep their raw label ("Travel"), which
+ * `normalizeTime` would otherwise flatten to TBC.
+ */
+export function applyTemplate(slots: TemplateSlot[], weekStartIso: string): Show[] {
+  const start = isoDate(weekStartIso);
+  // Reproduce at most one company RED day, mirroring showsToSlots' capture rule.
+  let companyRedApplied = false;
+  return slots.map((slot, i) => {
+    const show: Show = {
+      id: freshShowId(i),
+      date: addDaysIso(start, slot.dayOffset),
+      time: slot.status === "show" ? normalizeTime(slot.time) : slot.time,
+      callTime: slot.status === "show" ? normalizeTime(slot.callTime) : slot.callTime,
+      status: slot.status,
+    };
+    if (!companyRedApplied && slot.isCompanyRedDay && slot.status === "dayoff") {
+      show.isCompanyRedDay = true;
+      companyRedApplied = true;
+    }
+    return show;
+  });
+}
+
+/**
+ * The built-in "Standard" week offered before any template is authored: a
+ * Monday travel day, single evening shows Tue–Fri, and matinee+evening doubles
+ * on Saturday and Sunday — eight shows in all. Times match the app's canonical
+ * per-weekday defaults (getDefaultShowTimes). A Monday travel day does NOT drop
+ * a show; that was the tour-generator bug this replaces.
+ */
+export const STANDARD_TEMPLATE_SLOTS: TemplateSlot[] = [
+  { dayOffset: 0, time: "Travel", callTime: "Travel", status: "travel" }, // Monday
+  { dayOffset: 1, time: "20:00", callTime: "17:00", status: "show" }, // Tuesday
+  { dayOffset: 2, time: "20:00", callTime: "18:00", status: "show" }, // Wednesday
+  { dayOffset: 3, time: "20:00", callTime: "18:00", status: "show" }, // Thursday
+  { dayOffset: 4, time: "20:00", callTime: "18:00", status: "show" }, // Friday
+  { dayOffset: 5, time: "15:00", callTime: "13:30", status: "show" }, // Saturday matinee
+  { dayOffset: 5, time: "20:00", callTime: "18:00", status: "show" }, // Saturday evening
+  { dayOffset: 6, time: "15:00", callTime: "13:30", status: "show" }, // Sunday matinee
+  { dayOffset: 6, time: "18:00", callTime: "16:30", status: "show" }, // Sunday evening
+];
+
+/**
+ * The template dropdown's built-in options, shared by the modal and the tour
+ * wizard. `null` slots mean "Blank week" (an empty schedule). User-authored
+ * templates from listTemplates() are appended after these.
+ */
+export interface TemplateChoice {
+  id: string;
+  name: string;
+  slots: TemplateSlot[];
+}
+
+export const BLANK_TEMPLATE_ID = "__blank__";
+export const STANDARD_TEMPLATE_ID = "__standard__";
+
+export const BUILTIN_TEMPLATE_CHOICES: TemplateChoice[] = [
+  { id: STANDARD_TEMPLATE_ID, name: "Standard", slots: STANDARD_TEMPLATE_SLOTS },
+  { id: BLANK_TEMPLATE_ID, name: "Blank week", slots: [] },
+];

@@ -18,13 +18,16 @@ export interface Tour {
 }
 
 export interface TourWeek {
-  weekNumber: number;
-  startDate: string;
+  startDate: string; // the week's Monday (YYYY-MM-DD)
   endDate: string;
-  locationCity: string; // NEW: City name for this week
-  isStandard: boolean;
-  travelDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'none'; // NEW
-  customShows?: Show[];
+  locationCity: string;
+  // Optional free-text week label (default ""). Week numbers were dropped —
+  // identity is venue + date range.
+  week?: string;
+  // Shows resolved client-side from the chosen template + week-start
+  // (applyTemplate in frontend/components/domain/week.ts). The backend persists
+  // them like a normal create; it does no offset math of its own.
+  shows: Show[];
 }
 
 export interface BulkCreateRequest {
@@ -37,11 +40,11 @@ export interface BulkCreateRequest {
 export interface TourWithWeeks extends Tour {
   weeks: Array<{
     id: string;
-    weekNumber: number;
-    startDate: string;
-    endDate: string;
+    startDate: string; // derived from the week's shows_data (earliest show date)
+    endDate: string; // derived from the week's shows_data (latest show date)
     showCount: number;
-    locationCity: string; // NEW
+    locationCity: string;
+    week: string; // optional free-text label ("" when unset)
   }>;
 }
 

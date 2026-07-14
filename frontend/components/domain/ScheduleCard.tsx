@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { MapPin, CalendarDays, Clock } from "lucide-react";
 import type { Schedule } from "~backend/scheduler/types";
 import { SchedulePill } from "./SchedulePill";
-import { splitLocation, dateRange, relTime, weekLabel } from "./format";
+import { DayStrip } from "./DayStrip";
+import { splitLocation, dateRange, relTime } from "./format";
 import { useSettings } from "@/providers/SettingsProvider";
 
 export function ScheduleCard({ schedule }: { schedule: Schedule }) {
@@ -18,7 +19,9 @@ export function ScheduleCard({ schedule }: { schedule: Schedule }) {
       <div className="sched-card-head">
         <div>
           <div className="sched-loc">{city}</div>
-          <div className="sched-week">{weekLabel(schedule.week).toUpperCase()}</div>
+          {/* Identity is venue + date range now; the week label is an optional
+              tag shown only when set (no more auto "WEEK 31"). */}
+          <div className="sched-week">{dateRange(schedule.shows, dateStyle)}</div>
         </div>
         <SchedulePill variant={complete ? "show" : "accent"}>{showCount} shows</SchedulePill>
       </div>
@@ -28,14 +31,20 @@ export function ScheduleCard({ schedule }: { schedule: Schedule }) {
           <MapPin />
           <b>{venue || city}</b>
         </div>
-        <div className="sched-meta-row">
-          <CalendarDays />
-          <span>{dateRange(schedule.shows, dateStyle)}</span>
-        </div>
+        {schedule.week ? (
+          <div className="sched-meta-row">
+            <CalendarDays />
+            <span>{schedule.week}</span>
+          </div>
+        ) : null}
         <div className="sched-meta-row">
           <Clock />
           <span>Updated {relTime(schedule.updatedAt)}</span>
         </div>
+      </div>
+
+      <div style={{ paddingTop: 12 }}>
+        <DayStrip shows={schedule.shows} size="sm" />
       </div>
 
       <div className="legend-row" style={{ paddingTop: 12, borderTop: "1px solid var(--border)" }}>

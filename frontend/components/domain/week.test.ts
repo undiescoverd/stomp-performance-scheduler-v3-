@@ -3,6 +3,7 @@ import {
   addDaysIso,
   addShowToDate,
   applyShowStatus,
+  applyTemplate,
   citySegments,
   columnsForWeek,
   getDefaultShowTimes,
@@ -14,11 +15,14 @@ import {
   setCompanyRedDay,
   setDestination,
   showsOnDate,
+  showsToSlots,
   sortShows,
+  STANDARD_TEMPLATE_SLOTS,
   timeIsFree,
   weekFrame,
   weekStartOf,
 } from "./week";
+import { isoDate } from "./format";
 import type { Show } from "~backend/scheduler/types";
 
 const show = (date: string, time: string, callTime = "18:00", status: Show["status"] = "show"): Show => ({
@@ -549,5 +553,72 @@ describe("nextMondayFrom", () => {
       expect(nextMondayFrom(d) >= d).toBe(true);
     }
     expect(nextMondayFrom("2026-07-06")).toBe(mondayOf("2026-07-06"));
+  });
+});
+
+describe("week templates: showsToSlots / applyTemplate", () => {
+  const weekStart = "2026-07-20"; // a Monday
+  // A shape with a travel day, single shows, a Saturday double, and a Sunday
+  // day off carrying the company RED flag — every pattern the round-trip must
+  // preserve.
+  const pattern: Show[] = [
+    { id: "mon", date: addDaysIso(weekStart, 0), time: "Travel", callTime: "Travel", status: "travel" },
+    { id: "tue", date: addDaysIso(weekStart, 1), time: "20:00", callTime: "17:00", status: "show" },
+    { id: "wed", date: addDaysIso(weekStart, 2), time: "20:00", callTime: "18:00", status: "show" },
+    { id: "sat1", date: addDaysIso(weekStart, 5), time: "15:00", callTime: "13:30", status: "show" },
+    { id: "sat2", date: addDaysIso(weekStart, 5), time: "20:00", callTime: "18:00", status: "show" },
+    { id: "sun", date: addDaysIso(weekStart, 6), time: "00:00", callTime: "00:00", status: "dayoff", isCompanyRedDay: true },
+  ];
+
+  // Compare shapes ignoring the (freshly minted) id.
+  const strip = (s: Show) => ({
+    date: isoDate(s.date),
+    time: s.time,
+    callTime: s.callTime,
+    status: s.status,
+    isCompanyRedDay: s.isCompanyRedDay ?? false,
+  });
+
+  it("captures Monday-relative offsets and drops cast/venue/id", () => {
+    const slots = showsToSlots(pattern, weekStart);
+    expect(slots.map((s) => s.dayOffset)).toEqual([0, 1, 2, 5, 5, 6]);
+    // The Saturday double keeps both slots at offset 5.
+    expect(slots.filter((s) => s.dayOffset === 5)).toHaveLength(2);
+    // isCompanyRedDay survives capture on the day off only.
+    expect(slots.find((s) => s.dayOffset === 6)?.isCompanyRedDay).toBe(true);
+    expect(slots.some((s) => "id" in s || "location" in s)).toBe(false);
+  });
+
+  it("round-trips capture → apply, preserving the exact pattern", () => {
+    const slots = showsToSlots(pattern, weekStart);
+    const replayed = applyTemplate(slots, weekStart);
+    expect(replayed.map(strip)).toEqual(sortShows(pattern).map(strip));
+    // Fresh, unique ids.
+    const ids = replayed.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every((id) => id.length > 0)).toBe(true);
+  });
+
+  it("replays onto a different week-start by shifting every date by the same offset", () => {
+    const slots = showsToSlots(pattern, weekStart);
+    const other = "2026-08-17"; // a later Monday
+    const replayed = applyTemplate(slots, other);
+    expect(replayed.map((s) => isoDate(s.date))).toEqual(
+      slots.map((slot) => addDaysIso(other, slot.dayOffset)),
+    );
+    // The Saturday double both land on the same (shifted) date.
+    expect(isoDate(replayed[3].date)).toBe(addDaysIso(other, 5));
+    expect(isoDate(replayed[4].date)).toBe(addDaysIso(other, 5));
+  });
+
+  it("the built-in Standard template applies to 8 shows plus a Monday travel day", () => {
+    const shows = applyTemplate(STANDARD_TEMPLATE_SLOTS, weekStart);
+    expect(shows.filter((s) => s.status === "show")).toHaveLength(8);
+    expect(shows.filter((s) => s.status === "travel")).toHaveLength(1);
+    // Monday travel sits at the week start; Sat & Sun are doubles.
+    const travel = shows.find((s) => s.status === "travel")!;
+    expect(isoDate(travel.date)).toBe(weekStart);
+    expect(shows.filter((s) => isoDate(s.date) === addDaysIso(weekStart, 5))).toHaveLength(2);
+    expect(shows.filter((s) => isoDate(s.date) === addDaysIso(weekStart, 6))).toHaveLength(2);
   });
 });

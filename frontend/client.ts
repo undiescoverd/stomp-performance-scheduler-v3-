@@ -228,6 +228,12 @@ import { create as api_scheduler_create_create } from "~backend/scheduler/create
 import { deleteSchedule as api_scheduler_delete_deleteSchedule } from "~backend/scheduler/delete";
 import { get as api_scheduler_get_get } from "~backend/scheduler/get";
 import { list as api_scheduler_list_list } from "~backend/scheduler/list";
+import {
+    createTemplate as api_scheduler_templates_createTemplate,
+    deleteTemplate as api_scheduler_templates_deleteTemplate,
+    listTemplates as api_scheduler_templates_listTemplates,
+    updateTemplate as api_scheduler_templates_updateTemplate
+} from "~backend/scheduler/templates";
 import { toggleRedDay as api_scheduler_toggle_red_day_toggleRedDay } from "~backend/scheduler/toggle_red_day";
 import {
     createTourBulk as api_scheduler_tours_createTourBulk,
@@ -249,9 +255,11 @@ export namespace scheduler {
             this.addMember = this.addMember.bind(this)
             this.autoGenerate = this.autoGenerate.bind(this)
             this.create = this.create.bind(this)
+            this.createTemplate = this.createTemplate.bind(this)
             this.createTourBulk = this.createTourBulk.bind(this)
             this.deleteMember = this.deleteMember.bind(this)
             this.deleteSchedule = this.deleteSchedule.bind(this)
+            this.deleteTemplate = this.deleteTemplate.bind(this)
             this.deleteTour = this.deleteTour.bind(this)
             this.deleteTourWeek = this.deleteTourWeek.bind(this)
             this.get = this.get.bind(this)
@@ -259,10 +267,12 @@ export namespace scheduler {
             this.getCompany = this.getCompany.bind(this)
             this.getTours = this.getTours.bind(this)
             this.list = this.list.bind(this)
+            this.listTemplates = this.listTemplates.bind(this)
             this.reorderMembers = this.reorderMembers.bind(this)
             this.toggleRedDay = this.toggleRedDay.bind(this)
             this.update = this.update.bind(this)
             this.updateMember = this.updateMember.bind(this)
+            this.updateTemplate = this.updateTemplate.bind(this)
             this.validate = this.validate.bind(this)
             this.validateComprehensive = this.validateComprehensive.bind(this)
         }
@@ -295,6 +305,15 @@ export namespace scheduler {
         }
 
         /**
+         * Creates a template owned by the authenticated user. Slots are stored verbatim.
+         */
+        public async createTemplate(params: RequestType<typeof api_scheduler_templates_createTemplate>): Promise<ResponseType<typeof api_scheduler_templates_createTemplate>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/templates`, {method: "POST", body: JSON.stringify(params)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_templates_createTemplate>
+        }
+
+        /**
          * Creates a tour with bulk schedule generation
          */
         public async createTourBulk(params: RequestType<typeof api_scheduler_tours_createTourBulk>): Promise<ResponseType<typeof api_scheduler_tours_createTourBulk>> {
@@ -315,6 +334,13 @@ export namespace scheduler {
          */
         public async deleteSchedule(params: { id: string }): Promise<void> {
             await this.baseClient.callTypedAPI(`/schedules/${encodeURIComponent(params.id)}`, {method: "DELETE", body: undefined})
+        }
+
+        /**
+         * Deletes a template owned by the authenticated user.
+         */
+        public async deleteTemplate(params: { id: string }): Promise<void> {
+            await this.baseClient.callTypedAPI(`/templates/${encodeURIComponent(params.id)}`, {method: "DELETE", body: undefined})
         }
 
         /**
@@ -386,6 +412,15 @@ export namespace scheduler {
         }
 
         /**
+         * Lists the authenticated user's templates, most-recently-updated first.
+         */
+        public async listTemplates(): Promise<ResponseType<typeof api_scheduler_templates_listTemplates>> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/templates`, {method: "GET", body: undefined})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_templates_listTemplates>
+        }
+
+        /**
          * Reorders the current company members.
          */
         public async reorderMembers(params: RequestType<typeof api_scheduler_company_reorderMembers>): Promise<void> {
@@ -440,6 +475,22 @@ export namespace scheduler {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI(`/company/members/${encodeURIComponent(params.id)}`, {method: "PUT", body: JSON.stringify(body)})
             return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_company_updateMember>
+        }
+
+        /**
+         * Updates a template in place (rename and/or reshape). Scoped to the owner: a
+         * template belonging to another user reads as not-found.
+         */
+        public async updateTemplate(params: RequestType<typeof api_scheduler_templates_updateTemplate>): Promise<ResponseType<typeof api_scheduler_templates_updateTemplate>> {
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                name:  params.name,
+                slots: params.slots,
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI(`/templates/${encodeURIComponent(params.id)}`, {method: "PUT", body: JSON.stringify(body)})
+            return JSON.parse(await resp.text(), dateReviver) as ResponseType<typeof api_scheduler_templates_updateTemplate>
         }
 
         /**

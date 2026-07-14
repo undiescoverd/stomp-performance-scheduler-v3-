@@ -1,7 +1,24 @@
 # Derived RED Days
 
 **Date:** 2026-07-14
-**Status:** Approved, ready for planning
+**Status:** ✅ **Implemented and shipped** (2026-07-14) — merged to `main` in `6948ff0`,
+live in staging and production. Implemented as designed, with two deviations worth
+knowing:
+
+- **Branch A rebuilds its `OFF` rows from the complement** (as the fairness path does)
+  rather than mapping over the input ones. `convertToAssignments()` is not guaranteed to
+  emit a complete set of `OFF` rows, so a `map()` would silently drop a performer's
+  dormant flag — the reversibility promise failing in the one place meant to protect it.
+  A `stageDates` guard stops a dormant flag being re-emitted onto the *other* show of a
+  two-show day.
+- **Nine existing tests asserted the old stored-row behaviour** (`activeShows * 12 + 12`,
+  counting the company RED `OFF` rows Branch A used to push). They now assert the rule
+  instead. The acceptance suite got its own independent `effectiveRedDates()` helper
+  rather than being pointed at the validator, preserving its recompute-don't-trust stance.
+
+The persistence round-trip named below as load-bearing was verified end-to-end against a
+real database: 12 dormant flags survived `PUT /schedules/:id`, and every restored pill
+came back on exactly the date the DB stored.
 
 ## Problem
 
