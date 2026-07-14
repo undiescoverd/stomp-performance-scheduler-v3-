@@ -52,9 +52,13 @@ export const createTourBulk = api<BulkCreateRequest, BulkCreateResponse>(
         };
       }
 
-      // Extract overall start and end dates from weeks
-      const startDate = req.weeks[0].startDate;
-      const endDate = req.weeks[req.weeks.length - 1].endDate;
+      // Overall span = earliest start / latest end across the weeks. Take the
+      // min/max rather than the first/last array entry: the caller may hand
+      // weeks in any order (getTours re-sorts by start date), and first/last
+      // would otherwise store an inverted range. Dates are YYYY-MM-DD, so a
+      // string compare is chronological.
+      const startDate = req.weeks.reduce((min, w) => (w.startDate < min ? w.startDate : min), req.weeks[0].startDate);
+      const endDate = req.weeks.reduce((max, w) => (w.endDate > max ? w.endDate : max), req.weeks[0].endDate);
 
       // Extract parent tour name (everything before " - ")
       const parentTourName = req.tourName.includes(" - ")

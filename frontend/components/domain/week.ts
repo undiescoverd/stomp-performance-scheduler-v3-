@@ -352,6 +352,10 @@ function freshShowId(index: number): string {
  */
 export function showsToSlots(shows: Show[], weekStartIso: string): TemplateSlot[] {
   const start = isoDate(weekStartIso);
+  // At most one company RED day per schedule (the same invariant the editor's
+  // setCompanyRedDay upholds). Keep only the first valid flag so malformed input
+  // can't capture a template with two.
+  let companyRedCaptured = false;
   return sortShows(shows).map((s) => {
     const slot: TemplateSlot = {
       dayOffset: dayDiffIso(isoDate(s.date), start),
@@ -360,7 +364,10 @@ export function showsToSlots(shows: Show[], weekStartIso: string): TemplateSlot[
       status: s.status,
     };
     // isCompanyRedDay is only meaningful on a day off (see applyShowStatus).
-    if (s.isCompanyRedDay && s.status === "dayoff") slot.isCompanyRedDay = true;
+    if (!companyRedCaptured && s.isCompanyRedDay && s.status === "dayoff") {
+      slot.isCompanyRedDay = true;
+      companyRedCaptured = true;
+    }
     return slot;
   });
 }
@@ -374,6 +381,8 @@ export function showsToSlots(shows: Show[], weekStartIso: string): TemplateSlot[
  */
 export function applyTemplate(slots: TemplateSlot[], weekStartIso: string): Show[] {
   const start = isoDate(weekStartIso);
+  // Reproduce at most one company RED day, mirroring showsToSlots' capture rule.
+  let companyRedApplied = false;
   return slots.map((slot, i) => {
     const show: Show = {
       id: freshShowId(i),
@@ -382,7 +391,10 @@ export function applyTemplate(slots: TemplateSlot[], weekStartIso: string): Show
       callTime: slot.status === "show" ? normalizeTime(slot.callTime) : slot.callTime,
       status: slot.status,
     };
-    if (slot.isCompanyRedDay && slot.status === "dayoff") show.isCompanyRedDay = true;
+    if (!companyRedApplied && slot.isCompanyRedDay && slot.status === "dayoff") {
+      show.isCompanyRedDay = true;
+      companyRedApplied = true;
+    }
     return show;
   });
 }

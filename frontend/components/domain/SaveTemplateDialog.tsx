@@ -52,17 +52,28 @@ export function SaveTemplateDialog({
   const canSave = name.trim().length > 0 && slots.length > 0;
   const busy = createTemplate.isPending || updateTemplate.isPending;
 
-  const saveNew = async () => {
+  // Use .mutate with onSuccess (not awaited mutateAsync): a failed request then
+  // routes through the hook's onError toast instead of surfacing as an unhandled
+  // rejection, and the dialog only closes once the write actually succeeds.
+  const saveNew = () => {
     if (!canSave) return;
-    const res = await createTemplate.mutateAsync({ name: name.trim(), slots });
-    onSaved?.(res.template.id);
-    onOpenChange(false);
+    createTemplate.mutate(
+      { name: name.trim(), slots },
+      {
+        onSuccess: (res) => {
+          onSaved?.(res.template.id);
+          onOpenChange(false);
+        },
+      },
+    );
   };
 
-  const update = async () => {
+  const update = () => {
     if (!current || slots.length === 0) return;
-    await updateTemplate.mutateAsync({ id: current.id, name: name.trim() || current.name, slots });
-    onOpenChange(false);
+    updateTemplate.mutate(
+      { id: current.id, name: name.trim() || current.name, slots },
+      { onSuccess: () => onOpenChange(false) },
+    );
   };
 
   return (

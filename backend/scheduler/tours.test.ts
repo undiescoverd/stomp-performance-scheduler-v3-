@@ -62,6 +62,11 @@ describe('Tour bulk-create from explicit shows', () => {
     expect(res.tour).toBeDefined();
     createdTourIds.push(res.tour!.id);
 
+    // The parent tour span is the earliest start / latest end, not the first/
+    // last array entry — even though the weeks were passed out of order.
+    expect(res.tour!.startDate).toBe(monEarly);
+    expect(res.tour!.endDate).toBe(addDays(monLate, 6));
+
     // Both weeks report 8 real shows — the Monday travel day is preserved, not
     // subtracted from the show count.
     expect(res.tour!.weeks.map((w) => w.showCount)).toEqual([8, 8]);
