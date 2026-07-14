@@ -4,7 +4,7 @@
  * Combined modal that handles both login and registration
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import LoginForm from './LoginForm';
 import RegisterForm from './RegisterForm';
 import ForgotPasswordForm from './ForgotPasswordForm';
@@ -29,6 +29,13 @@ const AuthModal: React.FC<AuthModalProps> = ({
   defaultMode = 'login'
 }) => {
   const [mode, setMode] = useState<AuthMode>(defaultMode);
+
+  // The modal stays mounted while closed, so useState's initial value is only
+  // read once. Without this, the mode the user last switched to would stick
+  // and override whichever button they open the modal with next time.
+  useEffect(() => {
+    if (isOpen) setMode(defaultMode);
+  }, [isOpen, defaultMode]);
 
   if (!isOpen) return null;
 

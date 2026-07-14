@@ -10,7 +10,8 @@ interface AuthWrapperProps {
 export function AuthWrapper({ children }: AuthWrapperProps) {
   const { isAuthenticated, isLoading, user } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
-  
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -33,15 +34,17 @@ export function AuthWrapper({ children }: AuthWrapperProps) {
           <div className="space-y-4">
             <button
               onClick={() => {
+                setAuthMode('login');
                 setShowAuthModal(true);
               }}
               className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium transition-colors"
             >
               Sign In
             </button>
-            
+
             <button
               onClick={() => {
+                setAuthMode('register');
                 setShowAuthModal(true);
               }}
               className="w-full bg-white text-gray-700 py-3 px-6 rounded-lg border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium transition-colors"
@@ -53,7 +56,7 @@ export function AuthWrapper({ children }: AuthWrapperProps) {
           <AuthModal
             isOpen={showAuthModal}
             onClose={() => setShowAuthModal(false)}
-            defaultMode="login"
+            defaultMode={authMode}
           />
         </div>
       </div>
