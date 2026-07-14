@@ -240,6 +240,15 @@ export class SchedulingAlgorithm {
     return flagged.length > 0 ? flagged[0] : null;
   }
 
+  // A locked RED date only constrains casting when it actually means something.
+  // Under a company RED day the individual pick is DORMANT — the company day is
+  // everyone's RED day — so it must not keep the performer off stage, which
+  // would needlessly narrow the casting pool for a reason that no longer
+  // applies. See the derived-RED-days spec.
+  private castingRedDateFor(performer: string): string | undefined {
+    return this.detectCompanyRedDate() ? undefined : this.lockedRedDates.get(performer);
+  }
+
   private findConsecutiveDoubleDays(): Array<{startDate: string, endDate: string, showIds: string[]}> {
     const consecutiveDoubles: Array<{startDate: string, endDate: string, showIds: string[]}> = [];
     const showsByDate: Record<string, Show[]> = {};
@@ -934,8 +943,9 @@ export class SchedulingAlgorithm {
         // CHECK 0: Don't staff a performer onto an empty slot on their manually
         // locked RED date — otherwise the final OFF-marker loop emits no RED for
         // them and post-validation fails, destroying the user's picks. No-op
-        // when lockedRedDates is empty (get() -> undefined !== show.date).
-        if (show && this.lockedRedDates.get(member.name) === show.date) {
+        // when lockedRedDates is empty, and bypassed entirely under a company
+        // RED day, where the pick is dormant (see castingRedDateFor).
+        if (show && this.castingRedDateFor(member.name) === show.date) {
           return false;
         }
 
@@ -1022,8 +1032,9 @@ export class SchedulingAlgorithm {
         if (showAssignment[role] === "") {
           const availableCast = eligibleCast.filter(member => {
             // Respect a manually locked RED day on this date (mirrors
-            // getEligiblePerformers). No-op when lockedRedDates is empty.
-            if (this.lockedRedDates.get(member.name) === show.date) {
+            // getEligiblePerformers). No-op when lockedRedDates is empty, and
+            // bypassed under a company RED day (see castingRedDateFor).
+            if (this.castingRedDateFor(member.name) === show.date) {
               return false;
             }
 
@@ -1087,34 +1098,52 @@ export class SchedulingAlgorithm {
     }
     const allPerformers = this.castMembers.map(m => m.name);
 
-    // If a day off is nominated as the company RED day, handle it differently
+    // If a day off is nominated as the company RED day, handle it differently.
     if (companyRedDate) {
-      const companyRedShowIds = this.shows
-        .filter(s => s.date === companyRedDate && s.status === 'dayoff')
-        .map(s => s.id);
+      // The company RED day IS every performer's RED day. That is DERIVED at
+      // read time from Show.isCompanyRedDay, so nothing is written for it here.
+      //
+      // Individual picks stay DORMANT rather than being cleared, so removing the
+      // day off restores the week exactly. A dormant pick is dropped only if this
+      // generation cast the performer on that date — restoring a RED day they are
+      // working would be un-restorable state (it would trip RED_DAY_NOT_FULL_DAY).
+      //
+      // Rebuild the OFF rows from the complement rather than mapping over the
+      // input ones, exactly as the fairness path below does: offAssignments is
+      // only populated at two conditional sites and is reset per show by
+      // clearAllAssignments, so convertToAssignments is not guaranteed to emit a
+      // complete set. A map() over a missing OFF row would silently drop that
+      // performer's dormant flag — the reversibility promise failing in the one
+      // place meant to protect it.
+      const showById = new Map(this.shows.map(s => [s.id, s]));
+      const stageOnly = assignments.filter(a => a.role !== 'OFF');
 
-      // Mark all performers as RED on the company RED day
-      const finalAssignments: Assignment[] = [...assignments];
+      // Dates each performer is actually cast on. Load-bearing on a TWO-SHOW
+      // DAY: a performer can be cast in show A and OFF in show B on the same
+      // date, and the dormant flag must not be re-emitted onto show B.
+      const stageDates = new Map<string, Set<string>>();
+      for (const a of stageOnly) {
+        const date = showById.get(a.showId)?.date;
+        if (!date) continue;
+        if (!stageDates.has(a.performer)) stageDates.set(a.performer, new Set());
+        stageDates.get(a.performer)!.add(date);
+      }
 
-      // Add RED day assignments for the company RED day
-      for (const showId of companyRedShowIds) {
+      const result: Assignment[] = [...stageOnly];
+      for (const show of this.shows.filter(s => s.status === 'show')) {
+        const assigned = new Set(stageOnly.filter(a => a.showId === show.id).map(a => a.performer));
         for (const performer of allPerformers) {
-          finalAssignments.push({
-            showId: showId,
+          if (assigned.has(performer)) continue;
+          const dormant = this.lockedRedDates.get(performer);
+          result.push({
+            showId: show.id,
             role: 'OFF',
-            performer: performer,
-            isRedDay: true
+            performer,
+            isRedDay: dormant === show.date && !stageDates.get(performer)?.has(show.date),
           });
         }
       }
-
-      // All other OFF assignments are not RED
-      return finalAssignments.map(a => {
-        if (a.role === 'OFF' && !companyRedShowIds.includes(a.showId)) {
-          return { ...a, isRedDay: false };
-        }
-        return a;
-      });
+      return result;
     }
 
     // NEW LOGIC: Ensure everyone gets exactly one RED day
@@ -1750,12 +1779,20 @@ export class SchedulingAlgorithm {
       }
     }
 
-    // RED Day Validation
+    // RED Day Validation.
+    //
+    // A performer's effective RED date is DERIVED, never read straight off the
+    // stored flags: it is the company RED date if the week has one, and only
+    // otherwise the date of their own isRedDay OFF row. So while a company RED
+    // day is set, individual flags are dormant — still in assignments_data, so
+    // removing the day off restores them, but ignored here.
+    const companyRedDate = this.detectCompanyRedDate();
     const performerRedDays: Record<string, string[]> = {};
-    this.castMembers.forEach(m => performerRedDays[m.name] = []);
+    this.castMembers.forEach(m => performerRedDays[m.name] = companyRedDate ? [companyRedDate] : []);
 
-    const offAssignments = assignments.filter(a => a.role === 'OFF' && a.isRedDay);
-    offAssignments.forEach(a => {
+    if (!companyRedDate) {
+      const offAssignments = assignments.filter(a => a.role === 'OFF' && a.isRedDay);
+      offAssignments.forEach(a => {
         // Resolve against ALL shows, not just 'show'-status ones: a full-company
         // RED day sits on a 'dayoff'-status show (see §7), so restricting to
         // activeShows here would drop it and falsely flag everyone as missing a
@@ -1766,7 +1803,8 @@ export class SchedulingAlgorithm {
                 performerRedDays[a.performer].push(show.date);
             }
         }
-    });
+      });
+    }
 
     for (const performer in performerRedDays) {
         if (performerRedDays[performer].length > 1) {
