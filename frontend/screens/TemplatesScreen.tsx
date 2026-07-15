@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutTemplate, Plus, Pencil, Trash2, ArrowRight, Check, X } from "lucide-react";
+import { LayoutTemplate, Plus, Pencil, PencilRuler, Trash2, ArrowRight, Check, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -16,7 +16,7 @@ import { StatCard } from "@/components/domain/StatCard";
 import { DayStrip } from "@/components/domain/DayStrip";
 import { Input } from "@/components/ui/input";
 import { useTemplates } from "@/hooks/useTemplates";
-import { applyTemplate, nextMondayFrom } from "@/components/domain/week";
+import { applyTemplate, nextMondayFrom, FULL_WEEK_TEMPLATE_SLOTS } from "@/components/domain/week";
 import type { Template } from "~backend/scheduler/types";
 
 function todayIso(): string {
@@ -45,8 +45,8 @@ export function TemplatesScreen() {
     setEditingId(null);
   };
 
-  // Apply: open a new schedule seeded from this template on the next Monday.
-  // Venue is left blank for the user to fill in the editor.
+  // Apply: open a new *schedule* seeded from this template on the next Monday
+  // (for casting). Venue is left blank for the user to fill in the editor.
   const apply = (t: Template) => {
     const weekStart = nextMondayFrom(todayIso());
     navigate("/schedule/new", {
@@ -56,10 +56,31 @@ export function TemplatesScreen() {
     });
   };
 
-  const newFromBlank = () => {
+  // Edit shape: open the template in the shape-only builder to reshape it, then
+  // "Save as template" updates it in place (templateId is carried through).
+  const editShape = (t: Template) => {
     const weekStart = nextMondayFrom(todayIso());
     navigate("/schedule/new", {
-      state: { seed: { location: "", weekStart, shows: [], templateId: undefined } },
+      state: {
+        seed: { location: "", weekStart, shows: applyTemplate(t.slots, weekStart), templateId: t.id, templateMode: true },
+      },
+    });
+  };
+
+  // Build a week: open the shape-only builder on a full Mon–Sun canvas, ready to
+  // reshape and save as a new template.
+  const buildWeek = () => {
+    const weekStart = nextMondayFrom(todayIso());
+    navigate("/schedule/new", {
+      state: {
+        seed: {
+          location: "",
+          weekStart,
+          shows: applyTemplate(FULL_WEEK_TEMPLATE_SLOTS, weekStart),
+          templateId: undefined,
+          templateMode: true,
+        },
+      },
     });
   };
 
@@ -72,8 +93,8 @@ export function TemplatesScreen() {
         title="Templates"
         lead="Save any week's shape as a template, then apply it to a new schedule or a tour week. The schedule editor is the builder — shape a week and choose “Save as template”."
         actions={
-          <button className="btn btn-primary btn-sm" onClick={newFromBlank}>
-            <Plus /> New from blank week
+          <button className="btn btn-primary btn-sm" onClick={buildWeek}>
+            <Plus /> Build a week
           </button>
         }
       />
@@ -85,7 +106,7 @@ export function TemplatesScreen() {
       <section className="mt-32">
         <div className="section-head">
           <h2 className="h1">Your templates</h2>
-          <div className="kicker">Apply to a new schedule, rename, or delete</div>
+          <div className="kicker">Edit a shape, apply it to a schedule, rename, or delete</div>
         </div>
 
         {isLoading ? (
@@ -102,11 +123,11 @@ export function TemplatesScreen() {
             <LayoutTemplate />
             <div className="h2">No templates yet</div>
             <p className="text-muted" style={{ maxWidth: "46ch" }}>
-              Open a schedule, shape the week the way you tour it, and choose “Save as template” in the editor header.
-              It’ll appear here to reuse.
+              Build a week from a full Mon–Sun canvas — reshape the days and save — or shape any schedule and choose
+              “Save as template” in the editor header. It’ll appear here to reuse.
             </p>
-            <button className="btn btn-primary btn-sm" onClick={newFromBlank}>
-              <Plus /> New from blank week
+            <button className="btn btn-primary btn-sm" onClick={buildWeek}>
+              <Plus /> Build a week
             </button>
           </div>
         ) : (
@@ -147,7 +168,10 @@ export function TemplatesScreen() {
                     </div>
 
                     <div className="row-wrap" style={{ gap: 8 }}>
-                      <button className="btn btn-primary btn-sm" onClick={() => apply(t)}>
+                      <button className="btn btn-primary btn-sm" onClick={() => editShape(t)} title="Reshape this template's days">
+                        <PencilRuler /> Edit shape
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => apply(t)} title="Start a new schedule from this template">
                         Apply <ArrowRight />
                       </button>
                       <button className="btn btn-ghost btn-sm btn-icon" title="Rename" onClick={() => startRename(t)}>

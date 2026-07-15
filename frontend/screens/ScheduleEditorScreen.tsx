@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Download, Plus, Save, Undo2, Wand2, BookmarkPlus } from "lucide-react";
 import { useScheduleEditor } from "@/hooks/useScheduleEditor";
 import { useScheduleValidation } from "@/hooks/useScheduleValidation";
@@ -16,11 +16,16 @@ import { useSettings } from "@/providers/SettingsProvider";
 
 export function ScheduleEditorScreen() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const editor = useScheduleEditor(id);
   const validation = useScheduleValidation();
   const { toast } = useToast();
   const { dateStyle } = useSettings();
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+
+  // Shape-only "template builder" context: the whole casting layer is hidden and
+  // the only save is Save as template (see NewScheduleSeed.templateMode).
+  const tm = editor.templateMode;
 
   const castMembers = editor.castData?.castMembers ?? [];
   const roles = editor.castData?.roles ?? [];
@@ -86,67 +91,93 @@ export function ScheduleEditorScreen() {
         shows={editor.shows}
         weekStart={editor.weekStartDate}
         templateId={editor.templateId}
-        onSaved={editor.setTemplateId}
+        onSaved={(id) => {
+          editor.setTemplateId(id);
+          // After building/updating a template, return to the library to see it.
+          if (tm) navigate("/templates");
+        }}
       />
 
       <section className="between" style={{ flexWrap: "wrap", gap: 18 }}>
         <div style={{ minWidth: 0 }}>
-          <div className="eyebrow">{editor.week ? `${editor.week} · ` : ""}Editor</div>
-          <input
-            className="editor-title-input mt-8"
-            value={editor.location}
-            onChange={(e) => editor.setLocation(e.target.value)}
-            placeholder="Location (e.g. London — Ambassadors Theatre)"
-            aria-label="Schedule location"
-          />
-          <input
-            className="mt-8"
-            value={editor.week}
-            onChange={(e) => editor.setWeek(e.target.value)}
-            placeholder="Optional week label (e.g. Preview week)"
-            aria-label="Week label"
-            style={{
-              display: "block",
-              width: "min(340px, 100%)",
-              fontSize: 13,
-              color: "var(--muted)",
-              background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "5px 9px",
-            }}
-          />
+          <div className="eyebrow">{tm ? "Template builder" : editor.week ? `${editor.week} · Editor` : "Editor"}</div>
+          {tm ? (
+            <h2 className="h1 mt-8" style={{ marginBottom: 0 }}>Shape the week</h2>
+          ) : (
+            <>
+              <input
+                className="editor-title-input mt-8"
+                value={editor.location}
+                onChange={(e) => editor.setLocation(e.target.value)}
+                placeholder="Location (e.g. London — Ambassadors Theatre)"
+                aria-label="Schedule location"
+              />
+              <input
+                className="mt-8"
+                value={editor.week}
+                onChange={(e) => editor.setWeek(e.target.value)}
+                placeholder="Optional week label (e.g. Preview week)"
+                aria-label="Week label"
+                style={{
+                  display: "block",
+                  width: "min(340px, 100%)",
+                  fontSize: 13,
+                  color: "var(--muted)",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "5px 9px",
+                }}
+              />
+            </>
+          )}
           <p className="text-muted mt-8" style={{ fontSize: 14 }}>
-            {dateRange(editor.shows, dateStyle)} · {showCount} show{showCount === 1 ? "" : "s"}
+            {tm
+              ? `${showCount} show${showCount === 1 ? "" : "s"} · shape only — cast isn't saved in a template`
+              : `${dateRange(editor.shows, dateStyle)} · ${showCount} show${showCount === 1 ? "" : "s"}`}
           </p>
         </div>
         <div className="toolbar">
-          <button className="btn btn-subtle btn-sm btn-icon" title="Previous week" onClick={editor.navigateToPreviousWeek}>
-            <ChevronLeft />
-          </button>
-          <span className="mono" style={{ fontSize: 13, color: "var(--muted)", minWidth: 78, textAlign: "center" }}>
-            {editor.weekStartDate ? shortDate(editor.weekStartDate, dateStyle) : "—"}
-          </span>
-          <button className="btn btn-subtle btn-sm btn-icon" title="Next week" onClick={editor.navigateToNextWeek}>
-            <ChevronRight />
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setSaveTemplateOpen(true)} title="Save this week's shape as a reusable template">
-            <BookmarkPlus /> Save as template
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={handleExport}>
-            <Download /> Export PDF
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={editor.handleSave} disabled={editor.isSaving}>
-            <Save /> {editor.isSaving ? "Saving…" : "Save Changes"}
-          </button>
+          {tm ? null : (
+            <>
+              <button className="btn btn-subtle btn-sm btn-icon" title="Previous week" onClick={editor.navigateToPreviousWeek}>
+                <ChevronLeft />
+              </button>
+              <span className="mono" style={{ fontSize: 13, color: "var(--muted)", minWidth: 78, textAlign: "center" }}>
+                {editor.weekStartDate ? shortDate(editor.weekStartDate, dateStyle) : "—"}
+              </span>
+              <button className="btn btn-subtle btn-sm btn-icon" title="Next week" onClick={editor.navigateToNextWeek}>
+                <ChevronRight />
+              </button>
+            </>
+          )}
+          {tm ? (
+            <button className="btn btn-primary btn-sm" onClick={() => setSaveTemplateOpen(true)}>
+              <BookmarkPlus /> Save as template
+            </button>
+          ) : (
+            <>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSaveTemplateOpen(true)} title="Save this week's shape as a reusable template">
+                <BookmarkPlus /> Save as template
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={handleExport}>
+                <Download /> Export PDF
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={editor.handleSave} disabled={editor.isSaving}>
+                <Save /> {editor.isSaving ? "Saving…" : "Save Changes"}
+              </button>
+            </>
+          )}
         </div>
       </section>
 
       <section className="card card-head mt-24" style={{ padding: "14px 18px", flexWrap: "wrap" }}>
         <div className="row-wrap">
-          <button className="btn btn-primary btn-sm" onClick={editor.handleAutoGenerate} disabled={editor.isGenerating}>
-            <Wand2 /> {editor.isGenerating ? "Generating…" : "Auto Generate"}
-          </button>
+          {tm ? null : (
+            <button className="btn btn-primary btn-sm" onClick={editor.handleAutoGenerate} disabled={editor.isGenerating}>
+              <Wand2 /> {editor.isGenerating ? "Generating…" : "Auto Generate"}
+            </button>
+          )}
           <button className="btn btn-ghost btn-sm" onClick={editor.handleAddShow}>
             <Plus /> Add Show
           </button>
@@ -158,19 +189,23 @@ export function ScheduleEditorScreen() {
           >
             <Undo2 /> Undo
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={editor.handleClearAll}>
-            Clear All
-          </button>
+          {tm ? null : (
+            <button className="btn btn-ghost btn-sm" onClick={editor.handleClearAll}>
+              Clear All
+            </button>
+          )}
           <button className="btn btn-danger btn-sm" onClick={editor.handleResetShowTimes}>
             Reset Times
           </button>
         </div>
-        <div className="row-wrap">
-          <FairnessMeter covered={analytics.redCovered} target={redTarget} conflicts={analytics.conflicts} />
-        </div>
+        {tm ? null : (
+          <div className="row-wrap">
+            <FairnessMeter covered={analytics.redCovered} target={redTarget} conflicts={analytics.conflicts} />
+          </div>
+        )}
       </section>
 
-      <AnalyticsStrip analytics={analytics} shows={editor.shows} redTarget={redTarget} />
+      <AnalyticsStrip analytics={analytics} shows={editor.shows} redTarget={redTarget} shapeOnly={tm} />
 
       <div className="mt-16">
         <ScheduleGrid
@@ -178,7 +213,7 @@ export function ScheduleEditorScreen() {
           assignments={editor.assignments}
           castMembers={castMembers}
           roles={roles}
-          location={editor.location}
+          location={tm ? "Week shape" : editor.location}
           week={editor.week}
           onAssignmentChange={editor.handleAssignmentChange}
           onToggleRedDay={editor.handleToggleRedDay}
@@ -189,16 +224,19 @@ export function ScheduleEditorScreen() {
           onRestoreDate={editor.handleRestoreDate}
           onSetDestination={editor.handleSetDestination}
           onSetCompanyRedDay={editor.handleSetCompanyRedDay}
+          shapeOnly={tm}
         />
       </div>
 
-      <ViolationBanner
-        result={validation.result}
-        isValidating={validation.isValidating}
-        fatigueIssues={fatigueIssues}
-        roster={roster}
-        onToggleOverride={editor.handleToggleOverride}
-      />
+      {tm ? null : (
+        <ViolationBanner
+          result={validation.result}
+          isValidating={validation.isValidating}
+          fatigueIssues={fatigueIssues}
+          roster={roster}
+          onToggleOverride={editor.handleToggleOverride}
+        />
+      )}
     </>
   );
 }

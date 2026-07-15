@@ -32,6 +32,9 @@ export interface NewScheduleSeed {
   weekStart: string;
   shows: Show[];
   templateId?: string;
+  // Shape-only "template builder" entry (from the Templates library): the editor
+  // hides every casting affordance and its primary action is Save as template.
+  templateMode?: boolean;
 }
 
 export function useScheduleEditor(id?: string) {
@@ -43,6 +46,9 @@ export function useScheduleEditor(id?: string) {
   // Seed handed in by the New Schedule modal (venue + week-start + resolved
   // shows + the template they came from). Absent on a direct /schedule/new hit.
   const seed = (routerLocation.state as { seed?: NewScheduleSeed } | null)?.seed;
+  // Shape-only template-builder context (see NewScheduleSeed). A seed only rides
+  // the new-schedule navigation, so this is naturally false when editing.
+  const templateMode = !!seed?.templateMode;
 
   const [location, setLocation] = useState('');
   const [week, setWeek] = useState('');
@@ -619,6 +625,7 @@ export function useScheduleEditor(id?: string) {
     setWeek,
     templateId,
     setTemplateId,
+    templateMode,
     weekStartDate,
     shows,
     assignments,

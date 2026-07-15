@@ -24,6 +24,9 @@ interface ScheduleGridProps {
   onRestoreDate: (date: string) => void;
   onSetDestination: (travelShowId: string, city: string) => void;
   onSetCompanyRedDay: (showId: string, on: boolean) => void;
+  /** Template-builder context: render the day/status/time header only — no cast
+   *  role rows, OFF rows or RED-day legend (there is no cast to place). */
+  shapeOnly?: boolean;
 }
 
 export function ScheduleGrid({
@@ -42,6 +45,7 @@ export function ScheduleGrid({
   onRestoreDate,
   onSetDestination,
   onSetCompanyRedDay,
+  shapeOnly,
 }: ScheduleGridProps) {
   const showShows = shows.filter((s) => s.status === "show");
   const assignedShowIds = new Set(assignments.filter((a) => a.role !== "OFF").map((a) => a.showId));
@@ -104,7 +108,7 @@ export function ScheduleGrid({
               ))}
             </tr>
 
-            {roles.map((role, rowIndex) => {
+            {!shapeOnly && roles.map((role, rowIndex) => {
               const elig = castMembers.filter((m) => m.eligibleRoles.includes(role));
               return (
                 <tr key={role}>
@@ -149,7 +153,7 @@ export function ScheduleGrid({
               );
             })}
 
-            {hasAssignments && maxOff > 0 ? (
+            {!shapeOnly && hasAssignments && maxOff > 0 ? (
               <>
                 <tr className="grid-divider">
                   <td />
@@ -193,20 +197,22 @@ export function ScheduleGrid({
           </tbody>
         </table>
       </div>
-      <div className="red-legend">
-        <CircleSlash />
-        <span>
-          <b>RED Day</b> — performer is off the entire day and can't be called for cover.{" "}
-          {companyRed ? (
-            <>
-              The company RED day on {companyRedLabel} covers everyone this week, so individual RED days are paused.
-              Remove the day off to bring them back.
-            </>
-          ) : (
-            <>Click any OFF performer to toggle RED-day status.</>
-          )}
-        </span>
-      </div>
+      {shapeOnly ? null : (
+        <div className="red-legend">
+          <CircleSlash />
+          <span>
+            <b>RED Day</b> — performer is off the entire day and can't be called for cover.{" "}
+            {companyRed ? (
+              <>
+                The company RED day on {companyRedLabel} covers everyone this week, so individual RED days are paused.
+                Remove the day off to bring them back.
+              </>
+            ) : (
+              <>Click any OFF performer to toggle RED-day status.</>
+            )}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -429,10 +429,21 @@ export interface TemplateChoice {
   slots: TemplateSlot[];
 }
 
-export const BLANK_TEMPLATE_ID = "__blank__";
 export const STANDARD_TEMPLATE_ID = "__standard__";
+export const FULL_WEEK_TEMPLATE_ID = "__full_week__";
+
+/**
+ * A neutral seven-day canvas: Monday–Sunday, one evening show each. The starting
+ * point for building a week from scratch — every day is already a column, so
+ * shaping is "change this day's status / time" rather than the non-obvious
+ * "Add Show" on an empty grid. Reshape down (travel days, days off, doubles)
+ * from here.
+ */
+export const FULL_WEEK_TEMPLATE_SLOTS: TemplateSlot[] = [0, 1, 2, 3, 4, 5, 6].map(
+  (dayOffset): TemplateSlot => ({ dayOffset, time: "20:00", callTime: "18:00", status: "show" }),
+);
 
 export const BUILTIN_TEMPLATE_CHOICES: TemplateChoice[] = [
   { id: STANDARD_TEMPLATE_ID, name: "Standard", slots: STANDARD_TEMPLATE_SLOTS },
-  { id: BLANK_TEMPLATE_ID, name: "Blank week", slots: [] },
+  { id: FULL_WEEK_TEMPLATE_ID, name: "Full week (Mon–Sun)", slots: FULL_WEEK_TEMPLATE_SLOTS },
 ];

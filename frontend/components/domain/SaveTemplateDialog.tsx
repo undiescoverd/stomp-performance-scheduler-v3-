@@ -72,7 +72,12 @@ export function SaveTemplateDialog({
     if (!current || slots.length === 0) return;
     updateTemplate.mutate(
       { id: current.id, name: name.trim() || current.name, slots },
-      { onSuccess: () => onOpenChange(false) },
+      {
+        onSuccess: () => {
+          onSaved?.(current.id);
+          onOpenChange(false);
+        },
+      },
     );
   };
 

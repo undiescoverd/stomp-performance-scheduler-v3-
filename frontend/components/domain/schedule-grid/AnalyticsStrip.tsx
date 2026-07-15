@@ -5,9 +5,11 @@ interface AnalyticsStripProps {
   analytics: GridAnalytics;
   shows: Show[];
   redTarget: number;
+  /** Template-builder context: only the shape-relevant stat is shown. */
+  shapeOnly?: boolean;
 }
 
-export function AnalyticsStrip({ analytics, shows, redTarget }: AnalyticsStripProps) {
+export function AnalyticsStrip({ analytics, shows, redTarget, shapeOnly }: AnalyticsStripProps) {
   const { showCount, filled, totalSlots, coveragePct, conflicts, redCovered } = analytics;
   const { matinees, evenings } = splitByCurtain(shows);
 
@@ -20,6 +22,8 @@ export function AnalyticsStrip({ analytics, shows, redTarget }: AnalyticsStripPr
           {matinees} matinee{matinees === 1 ? "" : "s"} · {evenings} evening{evenings === 1 ? "" : "s"}
         </div>
       </div>
+      {shapeOnly ? null : (
+      <>
       <div className="stat">
         <div className="stat-label">Roles Filled</div>
         <div className="stat-val">
@@ -43,6 +47,8 @@ export function AnalyticsStrip({ analytics, shows, redTarget }: AnalyticsStripPr
           {conflicts ? `${conflicts} double-assignment${conflicts > 1 ? "s" : ""}` : "No double-assignments"}
         </div>
       </div>
+      </>
+      )}
     </section>
   );
 }

@@ -17,7 +17,7 @@ import {
   mondayOf,
   nextMondayFrom,
   BUILTIN_TEMPLATE_CHOICES,
-  BLANK_TEMPLATE_ID,
+  FULL_WEEK_TEMPLATE_ID,
   STANDARD_TEMPLATE_ID,
   type TemplateChoice,
 } from "./week";
@@ -70,7 +70,7 @@ export function NewScheduleModal({
 
   const confirm = () => {
     if (!canCreate || !selected) return;
-    const isBuiltin = selected.id === STANDARD_TEMPLATE_ID || selected.id === BLANK_TEMPLATE_ID;
+    const isBuiltin = selected.id === STANDARD_TEMPLATE_ID || selected.id === FULL_WEEK_TEMPLATE_ID;
     navigate("/schedule/new", {
       state: {
         seed: {
