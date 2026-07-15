@@ -15,8 +15,8 @@
 
 /* STOMP merged design system. Design tokens drive the ported console
    classes; shadcn color tokens are bridged to them in theme inline.
-   Light canvas + dark chrome live in root; dark mode flips only the
-   canvas plus the soft/line/fg fills. See docs/theming notes. */
+   Canvas and chrome both flip with the theme: light values live in
+   root, dark overrides live in .dark. See docs/theming notes. */
 
 :root {
   /* ---- Canvas neutrals (light working surface) ---- */
@@ -29,12 +29,12 @@
   --border:    oklch(91% 0.005 250);
   --border-2:  oklch(83% 0.006 250);
 
-  /* Dark chrome (control booth) - defined in root only */
-  --chrome:        oklch(17% 0.015 255);
-  --chrome-2:      oklch(21% 0.016 255);
-  --chrome-fg:     oklch(94% 0.005 250);
-  --chrome-muted:  oklch(60% 0.012 255);
-  --chrome-border: oklch(30% 0.015 255);
+  /* Chrome (sidebar panel) — flips with .dark below */
+  --chrome:        oklch(95% 0.008 255);
+  --chrome-2:      oklch(90% 0.012 255);
+  --chrome-fg:     oklch(20% 0.015 250);
+  --chrome-muted:  oklch(50% 0.012 255);
+  --chrome-border: oklch(85% 0.010 255);
 
   /* Accent - electric blue (design accent maps to shadcn primary) */
   --accent:        oklch(56% 0.20 255);
@@ -99,7 +99,7 @@
   --chart-5: var(--red);
 }
 
-/* Toggle flips ONLY the canvas + soft/line/fg fills. No chrome here. */
+/* Toggle flips the canvas, chrome, and soft/line/fg fills. */
 .dark {
   --bg:        oklch(22% 0.015 255);
   --surface:   oklch(26% 0.015 255);
@@ -109,6 +109,12 @@
   --faint:     oklch(52% 0.012 255);
   --border:    oklch(34% 0.012 255);
   --border-2:  oklch(42% 0.012 255);
+
+  --chrome:        oklch(17% 0.015 255);
+  --chrome-2:      oklch(21% 0.016 255);
+  --chrome-fg:     oklch(94% 0.005 250);
+  --chrome-muted:  oklch(60% 0.012 255);
+  --chrome-border: oklch(30% 0.015 255);
 
   /* 95pct-L soft fills blow out on dark; use lower-L variants */
   --accent-soft:   oklch(38% 0.10 255);
@@ -170,7 +176,7 @@
   --color-chart-4: var(--pink);
   --color-chart-5: var(--red);
 
-  /* sidebar tokens map to the always-dark chrome (constant in .dark) */
+  /* sidebar tokens map to the chrome tokens, which flip with .dark */
   --color-sidebar:                    var(--chrome);
   --color-sidebar-foreground:         var(--chrome-fg);
   --color-sidebar-primary:            var(--accent);
@@ -203,7 +209,7 @@
    so dark mode holds up.
    ============================================================ */
 
-/* ---------- App shell: dark sidebar + light main ---------- */
+/* ---------- App shell: theme-aware sidebar + main ---------- */
 .app {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
@@ -265,7 +271,7 @@
 }
 .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; opacity: .8; }
 .nav-item:hover { background: var(--chrome-2); }
-.nav-item.active { background: var(--chrome-2); color: #fff; }
+.nav-item.active { background: var(--chrome-2); color: var(--chrome-fg); }
 .nav-item.active svg { opacity: 1; color: var(--accent); }
 .nav-item.active::before {
   content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px;
